@@ -1,5 +1,7 @@
 use alloy::{
-    primitives::{Address, B256, aliases::U24, b256, keccak256}, providers::Provider, sol_types::SolValue,
+    primitives::{Address, B256, aliases::U24, b256, keccak256},
+    providers::Provider,
+    sol_types::SolValue,
 };
 use uniswap_sdk_core::prelude::{
     BaseCurrency, ChainId, Error, Token, V3_CORE_FACTORY_ADDRESSES, compute_zksync_create2_address,
