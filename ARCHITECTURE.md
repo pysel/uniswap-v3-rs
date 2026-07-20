@@ -18,15 +18,15 @@ src/
   main.rs                # local manual test binary (loads .env)
   calltypes/
     mod.rs               # re-exports router parameter types and Path
-    path.rs              # V3 path construction and packed ABI encoding
+    path.rs              # V3 Path/path! construction and packed ABI encoding
     router.rs            # ergonomic constructors for SwapRouter02 parameter types
   objects/
     mod.rs               # re-exports Factory, Pool, SwapRouter, TokenExt
     factory.rs           # Factory: CREATE2 pool address, pool() helper
     pool.rs              # Pool: immutables + RPC state getters
     swap_router.rs       # SwapRouter02 deployment + exact-input/output transactions
-    token.rs             # TokenExt: Token::from_address via ERC-20 metadata
-    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / Erc20Metadata
+    token.rs             # TokenExt: RPC metadata loading and ERC-20 approvals
+    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / Erc20
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02)
 scripts/
   anvil.sh               # mainnet fork via Anvil

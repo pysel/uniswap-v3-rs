@@ -3,6 +3,44 @@ use uniswap_sdk_core::prelude::{BaseCurrency, Error, Token};
 
 const MAX_FEE: u32 = 1_000_000;
 
+#[macro_export]
+macro_rules! path {
+    (
+        $input_token:expr,
+        $first_fee:expr,
+        $first_output_token:expr
+        $(, $fee:expr, $output_token:expr)*
+        $(,)?
+    ) => {{
+        let mut path = $crate::calltypes::Path::new($input_token);
+        $crate::path!(
+            @add path;
+            $first_fee,
+            $first_output_token
+            $(, $fee, $output_token)*
+        )
+    }};
+
+    (@add $path:ident; $fee:expr, $output_token:expr) => {
+        match $path.add_hop($output_token, $fee) {
+            Ok(_) => Ok($path),
+            Err(error) => Err(error),
+        }
+    };
+
+    (
+        @add $path:ident;
+        $fee:expr,
+        $output_token:expr,
+        $($remaining:tt)+
+    ) => {
+        match $path.add_hop($output_token, $fee) {
+            Ok(_) => $crate::path!(@add $path; $($remaining)+),
+            Err(error) => Err(error),
+        }
+    };
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Hop {
     token: Token,

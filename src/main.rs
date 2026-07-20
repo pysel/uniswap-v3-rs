@@ -1,10 +1,14 @@
 use std::{env, error::Error};
 use tokio;
 
+
 use alloy::signers::local::PrivateKeySigner;
 use uniswap_sdk_core::{prelude::*, token};
 
 use uniswap_v3_rs::client::UniswapV3Client;
+use uniswap_v3_rs::calltypes::ExactInputParams;
+use uniswap_v3_rs::objects::TokenExt;
+use uniswap_v3_rs::path;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -29,9 +33,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let weth = WETH9::on_chain(chain_id).expect("WETH9 not deployed on chain");
 
-    let pool = client.get_pool(usdc, weth, 500).await?;
+    usdc.approve_unlimited(&client.provider(), client.swap_router().unwrap().address()).await?;
+    weth.approve_unlimited(&client.provider(), client.swap_router().unwrap().address()).await?;
 
-    println!("pool: {:?}", pool);
+    let path = path!(usdc, 500, weth)?;
+
+    let params = ExactInputParams::new(&path, client.wallet().unwrap().default_signer().address(), U256::from(1000000), U256::from(0))?;
+    let result = client.swap_exact_input(params, None).await?;
+
+    println!("result: {:?}", result);
 
     Ok(())
 }

@@ -20,9 +20,10 @@ sol!(
 
 sol! {
     #[sol(rpc)]
-    interface Erc20Metadata {
+    interface Erc20 {
         function decimals() external view returns (uint8);
         function symbol() external view returns (string);
         function name() external view returns (string);
+        function approve(address spender, uint256 amount) external returns (bool);
     }
 }

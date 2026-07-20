@@ -45,7 +45,7 @@ impl SwapRouter {
         self.address
     }
 
-    pub async fn exact_input<P: Provider>(
+    pub(crate) async fn exact_input<P: Provider>(
         &self,
         provider: &P,
         params: ExactInputParams,
@@ -61,7 +61,7 @@ impl SwapRouter {
         Ok(*pending.tx_hash())
     }
 
-    pub async fn exact_input_single<P: Provider>(
+    pub(crate) async fn exact_input_single<P: Provider>(
         &self,
         provider: &P,
         params: ExactInputSingleParams,
@@ -77,7 +77,7 @@ impl SwapRouter {
         Ok(*pending.tx_hash())
     }
 
-    pub async fn exact_output<P: Provider>(
+    pub(crate) async fn exact_output<P: Provider>(
         &self,
         provider: &P,
         params: ExactOutputParams,
@@ -93,7 +93,7 @@ impl SwapRouter {
         Ok(*pending.tx_hash())
     }
 
-    pub async fn exact_output_single<P: Provider>(
+    pub(crate) async fn exact_output_single<P: Provider>(
         &self,
         provider: &P,
         params: ExactOutputSingleParams,

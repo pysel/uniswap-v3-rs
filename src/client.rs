@@ -1,11 +1,14 @@
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::Address,
+    primitives::{Address, TxHash, U256},
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use uniswap_sdk_core::entities::Token;
 
 use crate::{
+    calltypes::{
+        ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
+    },
     errors::UniswapV3Error,
     objects::{Factory, Pool, SwapRouter},
 };
@@ -68,6 +71,56 @@ impl UniswapV3Client {
         fee: u32,
     ) -> Result<Pool, UniswapV3Error> {
         self.factory.pool(token0, token1, fee, &self.provider).await
+    }
+
+    pub async fn swap_exact_input(
+        &self,
+        params: ExactInputParams,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        let value = value.unwrap_or(U256::from(0));
+        self.require_swap_router()?
+            .exact_input(&self.provider, params, value)
+            .await
+    }
+
+    pub async fn swap_exact_output(
+        &self,
+        params: ExactOutputParams,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        let value = value.unwrap_or(U256::from(0));
+        self.require_swap_router()?
+            .exact_output(&self.provider, params, value)
+            .await
+    }
+
+    pub async fn swap_exact_input_single(
+        &self,
+        params: ExactInputSingleParams,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        let value = value.unwrap_or(U256::from(0));
+        self.require_swap_router()?
+            .exact_input_single(&self.provider, params, value)
+            .await
+    }
+
+    pub async fn swap_exact_output_single(
+        &self,
+        params: ExactOutputSingleParams,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        let value = value.unwrap_or(U256::from(0));
+        self.require_swap_router()?
+            .exact_output_single(&self.provider, params, value)
+            .await
+    }
+
+    fn require_swap_router(&self) -> Result<&SwapRouter, UniswapV3Error> {
+        self.swap_router.as_ref().ok_or_else(|| {
+            UniswapV3Error::BuildError("no swap router for this chain".to_string())
+        })
     }
 }
 

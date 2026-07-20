@@ -25,7 +25,8 @@ set +a
 : "${WBTC_HOLDER:?WBTC_HOLDER is required}"
 
 client_version="$(cast rpc --rpc-url "$LOCAL_RPC_URL" web3_clientVersion | tr -d '"')"
-if [[ "${client_version,,}" != *anvil* ]]; then
+client_version_lower="$(printf '%s' "$client_version" | tr '[:upper:]' '[:lower:]')"
+if [[ "$client_version_lower" != *anvil* ]]; then
     echo "Refusing to fund a non-Anvil RPC endpoint: $LOCAL_RPC_URL ($client_version)" >&2
     exit 1
 fi
