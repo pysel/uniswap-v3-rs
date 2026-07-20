@@ -1,6 +1,5 @@
 //! Uniswap SDK for Rust.
 
-mod client;
-
-#[allow(unused)]
-mod objects;
+pub mod client;
+pub mod errors;
+pub mod objects;

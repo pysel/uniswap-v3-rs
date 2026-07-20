@@ -56,7 +56,7 @@
 | Wallet / app swap | SwapRouter02 `exactInput(Single)` or Trading API → Universal Router |
 | Off-chain quote | QuoterV2 via `eth_call` (never on-chain) |
 | LP mint/manage | `NonfungiblePositionManager` |
-| Direct pool / flash | `IUniswapV3Pool.swap` / `flash` + callback |
+| Direct pool / flash | `IPool.swap` / `flash` + callback |
 | Pool discovery | Factory `getPool` or CREATE2 `computeAddress` |
 | Historical analytics | V3 subgraph |
 
@@ -145,7 +145,7 @@ From `v3-periphery` `Path` library:
 key = keccak256(abi.encodePacked(owner, tickLower, tickUpper))
 ```
 
-Used by `IUniswapV3PoolState.positions(bytes32)`.
+Used by `IPoolState.positions(bytes32)`.
 
 ### 2.7 Fee growth
 
@@ -156,7 +156,7 @@ Used by `IUniswapV3PoolState.positions(bytes32)`.
 
 ## 3. Factory API
 
-**Package:** `@uniswap/v3-core` — `IUniswapV3Factory`
+**Package:** `@uniswap/v3-core` — `IFactory`
 
 | Function | Signature (abbrev.) | Notes |
 | --- | --- | --- |
@@ -173,9 +173,9 @@ Used by `IUniswapV3PoolState.positions(bytes32)`.
 
 ## 4. Pool Core API
 
-**Interface:** `IUniswapV3Pool` = Immutables ∪ State ∪ DerivedState ∪ Actions ∪ OwnerActions ∪ Events
+**Interface:** `IPool` = Immutables ∪ State ∪ DerivedState ∪ Actions ∪ OwnerActions ∪ Events
 
-### 4.1 Immutables (`IUniswapV3PoolImmutables`)
+### 4.1 Immutables (`IPoolImmutables`)
 
 | Function | Returns |
 | --- | --- |
@@ -185,7 +185,7 @@ Used by `IUniswapV3PoolState.positions(bytes32)`.
 | `tickSpacing()` | `int24` |
 | `maxLiquidityPerTick()` | `uint128` — `type(uint128).max / numTicks` where `numTicks` counts usable ticks at this spacing between aligned `MIN_TICK`/`MAX_TICK` |
 
-### 4.2 Mutable state (`IUniswapV3PoolState`)
+### 4.2 Mutable state (`IPoolState`)
 
 #### `slot0()`
 
@@ -213,14 +213,14 @@ Returns: `liquidityGross`, `liquidityNet`, `feeGrowthOutside0/1X128`, `tickCumul
 - `positions(bytes32 key)` — see §2.6
 - `observations(uint256 index)` — raw oracle ring buffer entry
 
-### 4.3 Derived / oracle (`IUniswapV3PoolDerivedState`)
+### 4.3 Derived / oracle (`IPoolDerivedState`)
 
 | Function | Notes |
 | --- | --- |
 | `observe(uint32[] secondsAgos)` | TWAP building blocks: `tickCumulatives`, `secondsPerLiquidityCumulativeX128s` |
 | `snapshotCumulativesInside(tickLower, tickUpper)` | Range snapshot for fee/seconds accounting |
 
-### 4.4 Permissionless actions (`IUniswapV3PoolActions`)
+### 4.4 Permissionless actions (`IPoolActions`)
 
 | Function | Callback | Notes |
 | --- | --- | --- |
@@ -232,7 +232,7 @@ Returns: `liquidityGross`, `liquidityNet`, `feeGrowthOutside0/1X128`, `tickCumul
 | `flash(recipient, amount0, amount1, data)` | `uniswapV3FlashCallback` | Pay back + fee in callback; `0,0` + donate possible |
 | `increaseObservationCardinalityNext(uint16)` | — | No-op if already ≥ |
 
-### 4.5 Owner actions (`IUniswapV3PoolOwnerActions`)
+### 4.5 Owner actions (`IPoolOwnerActions`)
 
 Factory owner only:
 
@@ -451,7 +451,7 @@ Typical flow: approve V2 LP → `migrate` with percentage, deadline, tick range,
 ```solidity
 struct IncentiveKey {
   IERC20Minimal rewardToken;
-  IUniswapV3Pool pool;
+  IPool pool;
   uint256 startTime;
   uint256 endTime;
   address refundee;
@@ -560,7 +560,7 @@ Example: 1-hour TWAP tick:
 
 | Contract | Address |
 | --- | --- |
-| UniswapV3Factory | `0x1F98431c8aD98523631AE4a59f267346ea31F984` |
+| Factory | `0x1F98431c8aD98523631AE4a59f267346ea31F984` |
 | Multicall2 (legacy docs) | `0x5BA1e12693Dc8F9c48aAD8770482f4739bEeD696` |
 | Multicall3 (sdk-core default map) | `0x1F98415757620B543A52E61c46B32eB19261F984` |
 | TickLens | `0xbfd8137f7d1516D3ea5cA83523914859ec47F573` |
@@ -641,7 +641,7 @@ Endpoints are chain-specific (The Graph hosted/decentralized + Alchemy/Goldsky m
 
 ## 21. Error Catalog & Failure Modes
 
-### 21.1 Core pool require strings (`UniswapV3Pool.sol`)
+### 21.1 Core pool require strings (`Pool.sol`)
 
 | Code | Meaning |
 | --- | --- |

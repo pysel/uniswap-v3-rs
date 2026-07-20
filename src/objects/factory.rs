@@ -1,10 +1,11 @@
 use alloy::{
-    primitives::{Address, B256, aliases::U24, b256, keccak256},
-    sol_types::SolValue,
+    primitives::{Address, B256, aliases::U24, b256, keccak256}, providers::Provider, sol_types::SolValue,
 };
 use uniswap_sdk_core::prelude::{
     BaseCurrency, ChainId, Error, Token, V3_CORE_FACTORY_ADDRESSES, compute_zksync_create2_address,
 };
+
+use crate::{errors::UniswapV3Error, objects::Pool};
 
 const POOL_INIT_CODE_HASH: B256 =
     b256!("e34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54");
@@ -13,12 +14,12 @@ const ZKSYNC_POOL_BYTECODE_HASH: B256 =
     b256!("010013f177ea1fcbc4520f9a3ca7cd2d1d77959e05aa66484027cb38e712aeed");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct UniswapV3Factory {
+pub struct Factory {
     chain_id: u64,
     address: Address,
 }
 
-impl UniswapV3Factory {
+impl Factory {
     pub fn new(chain_id: u64, address: Address) -> Result<Self, Error> {
         if chain_id == 0 {
             return Err(Error::Invalid("CHAIN_ID"));
@@ -58,6 +59,17 @@ impl UniswapV3Factory {
         };
 
         Ok(self.derive_pool_address(token0, token1, fee))
+    }
+
+    pub async fn pool<P: Provider>(
+        &self,
+        token0: Token,
+        token1: Token,
+        fee: u32,
+        provider: &P,
+    ) -> Result<Pool, UniswapV3Error> {
+        let address = self.pool_address(&token0, &token1, fee)?;
+        Pool::from_address(address, provider).await
     }
 
     pub(crate) fn validate_pool_key(

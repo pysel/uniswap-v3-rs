@@ -1,6 +1,8 @@
 mod abi_definitions;
 mod factory;
 mod pool;
+mod token;
 
-pub use factory::UniswapV3Factory;
-pub use pool::UniswapV3Pool;
+pub use factory::Factory;
+pub use pool::Pool;
+pub use token::TokenExt;
