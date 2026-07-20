@@ -1,0 +1,8 @@
+[package]
+name = "uniswap-v3-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { version = "2.2.0", features = ["json"] }
+uniswap-sdk-core = "6.0.0"
