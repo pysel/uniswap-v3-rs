@@ -69,6 +69,14 @@ impl Path {
         self.hops.is_empty()
     }
 
+    pub fn single_hop(&self) -> Result<(&Token, &Token, u32), Error> {
+        let [hop] = self.hops.as_slice() else {
+            return Err(Error::Invalid("SINGLE_HOP_PATH"));
+        };
+
+        Ok((&self.input_token, &hop.token, hop.fee))
+    }
+
     pub fn bytes(&self, exact_output: bool) -> Result<Bytes, Error> {
         if self.hops.is_empty() {
             return Err(Error::Invalid("PATH"));

@@ -4,7 +4,12 @@ use alloy::{
 };
 use uniswap_sdk_core::prelude::{Error, SWAP_ROUTER_02_ADDRESSES};
 
-use crate::{errors::UniswapV3Error, objects::abi_definitions::IV3SwapRouter::{ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams}};
+use crate::{
+    calltypes::{
+        ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
+    },
+    errors::UniswapV3Error,
+};
 
 use super::abi_definitions::SwapRouter02;
 

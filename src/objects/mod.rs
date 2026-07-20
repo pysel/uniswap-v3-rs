@@ -1,4 +1,4 @@
-mod abi_definitions;
+pub(crate) mod abi_definitions;
 mod factory;
 mod pool;
 mod swap_router;

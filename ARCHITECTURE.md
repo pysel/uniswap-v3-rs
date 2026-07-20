@@ -17,8 +17,9 @@ src/
   errors.rs              # UniswapV3Error
   main.rs                # local manual test binary (loads .env)
   calltypes/
-    mod.rs               # re-exports Path
+    mod.rs               # re-exports router parameter types and Path
     path.rs              # V3 path construction and packed ABI encoding
+    router.rs            # ergonomic constructors for SwapRouter02 parameter types
   objects/
     mod.rs               # re-exports Factory, Pool, SwapRouter, TokenExt
     factory.rs           # Factory: CREATE2 pool address, pool() helper
