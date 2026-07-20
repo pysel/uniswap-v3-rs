@@ -67,10 +67,7 @@ impl Path {
             return Err(Error::Invalid("FEE"));
         }
 
-        let previous_token = self
-            .hops
-            .last()
-            .map_or(&self.input_token, |hop| &hop.token);
+        let previous_token = self.hops.last().map_or(&self.input_token, |hop| &hop.token);
         if previous_token.chain_id != token.chain_id {
             return Err(Error::ChainIdMismatch(
                 previous_token.chain_id,
@@ -92,9 +89,7 @@ impl Path {
 
     #[must_use]
     pub fn output_token(&self) -> &Token {
-        self.hops
-            .last()
-            .map_or(&self.input_token, |hop| &hop.token)
+        self.hops.last().map_or(&self.input_token, |hop| &hop.token)
     }
 
     #[must_use]

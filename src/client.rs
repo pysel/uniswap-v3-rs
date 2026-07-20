@@ -118,9 +118,9 @@ impl UniswapV3Client {
     }
 
     fn require_swap_router(&self) -> Result<&SwapRouter, UniswapV3Error> {
-        self.swap_router.as_ref().ok_or_else(|| {
-            UniswapV3Error::BuildError("no swap router for this chain".to_string())
-        })
+        self.swap_router
+            .as_ref()
+            .ok_or_else(|| UniswapV3Error::BuildError("no swap router for this chain".to_string()))
     }
 }
 
