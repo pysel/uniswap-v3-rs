@@ -7,7 +7,7 @@ use uniswap_sdk_core::entities::Token;
 
 use crate::{
     errors::UniswapV3Error,
-    objects::{Factory, Pool},
+    objects::{Factory, Pool, SwapRouter},
 };
 
 #[derive(Clone, Debug)]
@@ -15,6 +15,7 @@ pub struct UniswapV3Client {
     rpc_url: String,
     provider: DynProvider,
     wallet: Option<EthereumWallet>,
+    swap_router: Option<SwapRouter>,
     factory: Factory,
 }
 
@@ -37,6 +38,10 @@ impl UniswapV3Client {
 
     pub fn factory(&self) -> &Factory {
         &self.factory
+    }
+
+    pub fn swap_router(&self) -> Option<&SwapRouter> {
+        self.swap_router.as_ref()
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, UniswapV3Error> {
@@ -114,12 +119,14 @@ impl UniswapV3ClientBuilder {
         let factory = Factory::from_chain(chain_id).ok_or_else(|| {
             UniswapV3Error::BuildError(format!("no V3 factory for chain id {chain_id}"))
         })?;
+        let swap_router = SwapRouter::from_chain(chain_id);
 
         Ok(UniswapV3Client {
             rpc_url,
             provider,
             wallet: self.wallet,
             factory,
+            swap_router,
         })
     }
 }

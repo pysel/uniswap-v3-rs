@@ -12,17 +12,21 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 ```text
 src/
-  lib.rs                 # public modules: client, errors, objects
+  lib.rs                 # public modules: calltypes, client, errors, objects
   client.rs              # UniswapV3Client (+ builder)
   errors.rs              # UniswapV3Error
   main.rs                # local manual test binary (loads .env)
+  calltypes/
+    mod.rs               # re-exports Path
+    path.rs              # V3 path construction and packed ABI encoding
   objects/
-    mod.rs               # re-exports Factory, Pool, TokenExt
+    mod.rs               # re-exports Factory, Pool, SwapRouter, TokenExt
     factory.rs           # Factory: CREATE2 pool address, pool() helper
     pool.rs              # Pool: immutables + RPC state getters
+    swap_router.rs       # SwapRouter02 deployment + exact-input/output transactions
     token.rs             # TokenExt: Token::from_address via ERC-20 metadata
-    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / Erc20Metadata
-artifacts/               # JSON ABIs consumed by sol!
+    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / Erc20Metadata
+artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02)
 scripts/
   anvil.sh               # mainnet fork via Anvil
   fund.sh                # fund Anvil account with WETH/USDC/USDT/WBTC
@@ -33,14 +37,16 @@ scripts/
 
 | Type | Owns | Notes |
 | --- | --- | --- |
-| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory` | Entry point. Builder resolves factory from RPC chain id. |
+| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter` | Entry point. Builder resolves factory (required) and SwapRouter02 (optional) from RPC chain id. |
 | `Factory` | `chain_id`, factory `address` | Offline CREATE2 derivation; `pool()` loads a `Pool` via provider. |
 | `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC. |
+| `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
+| `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
 | `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). |
 
 ### Construction paths
 
-1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`
+1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`
 2. **From chain** — `Pool::from_address`, `Token::from_address` (needs provider); client `get_pool(token_a, token_b, fee)` → factory CREATE2 → `Pool::from_address`
 
 Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, fee)), init_code_hash)` with `token0 < token1`. Init-code hash is an internal constant (zkSync uses a different hash / CREATE2 scheme).

@@ -12,6 +12,12 @@ sol!(
     "artifacts/UniswapV3Factory.json"
 );
 
+sol!(
+    #[sol(rpc)]
+    SwapRouter02,
+    "artifacts/SwapRouter02.json"
+);
+
 sol! {
     #[sol(rpc)]
     interface Erc20Metadata {
