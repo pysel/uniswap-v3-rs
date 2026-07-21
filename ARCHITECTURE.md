@@ -21,8 +21,12 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 Cargo.toml               # lib package + workspace (members: ., bin)
 bin/                     # local examples binary; depends on lib with features=["swap", "positions"]
   Cargo.toml
-  src/main.rs            # loads .env and exercises NPM position mint/close
-  examples/swap.rs       # `cargo run -p uniswap-v3-rs-bin --example swap`
+  src/main.rs            # prints example commands
+  examples/
+    list_positions.rs    # list owner NPM positions
+    create_position.rs   # mint a USDC/WETH position NFT
+    close_position.rs    # close (decrease+collect+burn) by token_id
+    swap.rs              # exact-input swap
 src/
   lib.rs                 # public modules: calltypes, client, errors, objects
   client.rs              # UniswapV3Client (+ builder)
@@ -92,14 +96,17 @@ Position lifecycle: `create_position` mints a new NFT, `increase_position_liquid
 
 ## Errors
 
-`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid pool, and converted `uniswap-sdk-core::Error`.
+`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`.
 
 ## Local testing
 
 1. `./scripts/anvil.sh` — fork Ethereum mainnet
 2. `./scripts/fund.sh` — fund the Anvil test account
-3. `cargo run` — `bin/` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and mints/closes a USDC/WETH position
-4. `cargo run -p uniswap-v3-rs-bin --example swap` — exact-input swap example
+3. Run focused examples (each loads `.env` with `LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`):
+   - `cargo run -p uniswap-v3-rs-bin --example list_positions`
+   - `cargo run -p uniswap-v3-rs-bin --example create_position`
+   - `cargo run -p uniswap-v3-rs-bin --example close_position -- <token_id>`
+   - `cargo run -p uniswap-v3-rs-bin --example swap`
 
 ## CI
 

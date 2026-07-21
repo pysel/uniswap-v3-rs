@@ -117,18 +117,27 @@ impl Pool {
         MAX_TICK
     }
 
-    pub fn validate_ticks(&self, tick_lower: i32, tick_upper: i32) -> Result<(), Error> {
+    pub fn validate_ticks(
+        &self,
+        tick_lower: i32,
+        tick_upper: i32,
+    ) -> Result<(I24, I24), UniswapV3Error> {
         if tick_lower >= tick_upper {
-            return Err(Error::Invalid("TICK_ORDER"));
+            return Err(UniswapV3Error::Invalid("TICK_ORDER".to_string()));
         }
         if tick_lower < Self::min_tick() || tick_upper > Self::max_tick() {
-            return Err(Error::Invalid("TICK_BOUNDS"));
+            return Err(UniswapV3Error::Invalid("TICK_BOUNDS".to_string()));
         }
         if tick_lower % self.tick_spacing != 0 || tick_upper % self.tick_spacing != 0 {
-            return Err(Error::Invalid("TICK_SPACING"));
+            return Err(UniswapV3Error::Invalid("TICK_SPACING".to_string()));
         }
 
-        Ok(())
+        let tick_lower_i24 = I24::try_from(tick_lower)
+            .map_err(|error| UniswapV3Error::Invalid(error.to_string()))?;
+        let tick_upper_i24 = I24::try_from(tick_upper)
+            .map_err(|error| UniswapV3Error::Invalid(error.to_string()))?;
+
+        Ok((tick_lower_i24, tick_upper_i24))
     }
 
     #[must_use]

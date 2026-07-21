@@ -2,7 +2,7 @@ use alloy::{
     primitives::{Address, TxHash, U256},
     providers::Provider,
 };
-use uniswap_sdk_core::prelude::{BaseCurrency, Token};
+use uniswap_sdk_core::{entities::BaseCurrencyCore, prelude::{BaseCurrency, Token}};
 
 use crate::errors::UniswapV3Error;
 
@@ -27,6 +27,9 @@ pub trait TokenExt {
         provider: &P,
         spender: Address,
     ) -> impl Future<Output = Result<TxHash, UniswapV3Error>>;
+
+    /// Converts a whole-token `amount` into raw units: `amount * 10^decimals`.
+    fn from_amount(&self, amount: u64) -> U256;
 }
 
 impl TokenExt for Token {
@@ -68,5 +71,9 @@ impl TokenExt for Token {
         spender: Address,
     ) -> Result<TxHash, UniswapV3Error> {
         self.approve(provider, spender, U256::MAX).await
+    }
+
+    fn from_amount(&self, amount: u64) -> U256 {
+        U256::from(amount) * U256::from(10).pow(U256::from(self.decimals()))
     }
 }
