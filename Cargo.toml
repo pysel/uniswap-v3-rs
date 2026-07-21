@@ -3,6 +3,15 @@ name = "uniswap-v3-rs"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+swap = []
+
+[[bin]]
+name = "uniswap-v3-rs"
+path = "src/main.rs"
+required-features = ["swap"]
+
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }
 alloy-primitives = "1.6.1"

@@ -1,16 +1,21 @@
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, TxHash, U256},
+    primitives::Address,
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use uniswap_sdk_core::entities::Token;
 
+#[cfg(feature = "swap")]
+use alloy::primitives::{TxHash, U256};
+
 use crate::{
-    calltypes::{
-        ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
-    },
     errors::UniswapV3Error,
     objects::{Factory, Pool, SwapRouter},
+};
+
+#[cfg(feature = "swap")]
+use crate::calltypes::{
+    ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
 };
 
 #[derive(Clone, Debug)]
@@ -73,6 +78,7 @@ impl UniswapV3Client {
         self.factory.pool(token0, token1, fee, &self.provider).await
     }
 
+    #[cfg(feature = "swap")]
     pub async fn swap_exact_input(
         &self,
         params: ExactInputParams,
@@ -84,6 +90,7 @@ impl UniswapV3Client {
             .await
     }
 
+    #[cfg(feature = "swap")]
     pub async fn swap_exact_output(
         &self,
         params: ExactOutputParams,
@@ -95,6 +102,7 @@ impl UniswapV3Client {
             .await
     }
 
+    #[cfg(feature = "swap")]
     pub async fn swap_exact_input_single(
         &self,
         params: ExactInputSingleParams,
@@ -106,6 +114,7 @@ impl UniswapV3Client {
             .await
     }
 
+    #[cfg(feature = "swap")]
     pub async fn swap_exact_output_single(
         &self,
         params: ExactOutputSingleParams,
@@ -117,6 +126,7 @@ impl UniswapV3Client {
             .await
     }
 
+    #[cfg(feature = "swap")]
     fn require_swap_router(&self) -> Result<&SwapRouter, UniswapV3Error> {
         self.swap_router
             .as_ref()

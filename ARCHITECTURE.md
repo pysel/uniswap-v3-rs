@@ -8,6 +8,12 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 - **`uniswap-sdk-core`** — offline primitives (`Token`, amounts, addresses); no RPC
 - **Tokio** — async runtime for the binary / RPC calls
 
+## Features
+
+| Feature | Default | Notes |
+| --- | --- | --- |
+| `swap` | no | Enables `UniswapV3Client::swap_exact_*` helpers. Not default so dependents opt in. Local binary: `cargo run --features swap`. |
+
 ## Layout
 
 ```text
@@ -73,7 +79,7 @@ Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, 
 
 1. `./scripts/anvil.sh` — fork Ethereum mainnet
 2. `./scripts/fund.sh` — fund the Anvil test account
-3. `cargo run` — `main.rs` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and exercises client → pool
+3. `cargo run --features swap` — `main.rs` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and exercises a swap
 
 ## CI
 
