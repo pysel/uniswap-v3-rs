@@ -10,7 +10,7 @@ swap = []
 [[bin]]
 name = "uniswap-v3-rs"
 path = "src/main.rs"
-required-features = ["swap"]
+required-features = ["full"]
 
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }
