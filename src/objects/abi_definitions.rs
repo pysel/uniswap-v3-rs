@@ -18,6 +18,13 @@ sol!(
     "artifacts/SwapRouter02.json"
 );
 
+#[cfg(feature = "positions")]
+sol!(
+    #[sol(rpc)]
+    NonfungiblePositionManager,
+    "artifacts/NonfungiblePositionManager.json"
+);
+
 sol! {
     #[sol(rpc)]
     interface Erc20 {

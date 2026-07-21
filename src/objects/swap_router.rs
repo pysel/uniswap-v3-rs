@@ -4,14 +4,12 @@ use alloy::{
 };
 use uniswap_sdk_core::prelude::{Error, SWAP_ROUTER_02_ADDRESSES};
 
-use crate::{
-    calltypes::{
-        ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
-    },
-    errors::UniswapV3Error,
-};
+use crate::errors::UniswapV3Error;
 
-use super::abi_definitions::SwapRouter02;
+use super::{
+    ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
+    SwapRouterContract,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SwapRouter {
@@ -20,7 +18,7 @@ pub struct SwapRouter {
 }
 
 impl SwapRouter {
-    pub fn new(chain_id: u64, address: Address) -> Result<Self, Error> {
+    pub(crate) fn new(chain_id: u64, address: Address) -> Result<Self, Error> {
         if chain_id == 0 {
             return Err(Error::Invalid("CHAIN_ID"));
         }
@@ -51,7 +49,7 @@ impl SwapRouter {
         params: ExactInputParams,
         value: U256,
     ) -> Result<TxHash, UniswapV3Error> {
-        let pending = SwapRouter02::new(self.address, provider)
+        let pending = SwapRouterContract::new(self.address, provider)
             .exactInput(params)
             .value(value)
             .send()
@@ -67,7 +65,7 @@ impl SwapRouter {
         params: ExactInputSingleParams,
         value: U256,
     ) -> Result<TxHash, UniswapV3Error> {
-        let pending = SwapRouter02::new(self.address, provider)
+        let pending = SwapRouterContract::new(self.address, provider)
             .exactInputSingle(params)
             .value(value)
             .send()
@@ -83,7 +81,7 @@ impl SwapRouter {
         params: ExactOutputParams,
         value: U256,
     ) -> Result<TxHash, UniswapV3Error> {
-        let pending = SwapRouter02::new(self.address, provider)
+        let pending = SwapRouterContract::new(self.address, provider)
             .exactOutput(params)
             .value(value)
             .send()
@@ -99,7 +97,7 @@ impl SwapRouter {
         params: ExactOutputSingleParams,
         value: U256,
     ) -> Result<TxHash, UniswapV3Error> {
-        let pending = SwapRouter02::new(self.address, provider)
+        let pending = SwapRouterContract::new(self.address, provider)
             .exactOutputSingle(params)
             .value(value)
             .send()

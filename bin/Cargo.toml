@@ -9,8 +9,9 @@ name = "uniswap-v3-rs"
 path = "src/main.rs"
 
 [dependencies]
-uniswap-v3-rs = { path = "..", features = ["swap"] }
+uniswap-v3-rs = { path = "..", features = ["swap", "positions"] }
 alloy = { version = "2.2.0", features = ["signer-local"] }
 alloy-primitives = "1.6.1"
 dotenvy = "0.15.7"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+uniswap-sdk-core = "6.0.0"

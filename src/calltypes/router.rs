@@ -6,7 +6,7 @@ use uniswap_sdk_core::prelude::{BaseCurrency, Error};
 
 use super::Path;
 
-pub use crate::objects::abi_definitions::IV3SwapRouter::{
+use crate::objects::{
     ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
 };
 

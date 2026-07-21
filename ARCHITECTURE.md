@@ -12,35 +12,46 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `swap` | no | Enables `UniswapV3Client::swap_exact_*` helpers. Not default for lib dependents. The `bin/` package enables it for local `cargo run`. |
+| `swap` | no | Enables `UniswapV3Client::swap_exact_*` helpers. Not default for lib dependents. Enabled by `bin/` for local examples. |
+| `positions` | no | Enables NPM position reads and lifecycle helpers (`create`, `increase`, `decrease`, `collect`, `close`). Enabled by `bin/` for local examples. |
 
 ## Layout
 
 ```text
 Cargo.toml               # lib package + workspace (members: ., bin)
-bin/                     # local test binary; depends on lib with features=["swap"]
+bin/                     # local examples binary; depends on lib with features=["swap", "positions"]
   Cargo.toml
-  src/main.rs            # loads .env and exercises a swap
+  src/main.rs            # loads .env and exercises NPM position mint/close
+  examples/swap.rs       # `cargo run -p uniswap-v3-rs-bin --example swap`
 src/
   lib.rs                 # public modules: calltypes, client, errors, objects
   client.rs              # UniswapV3Client (+ builder)
   errors.rs              # UniswapV3Error
   calltypes/
-    mod.rs               # re-exports router parameter types and Path
+    mod.rs               # re-exports Path and ClosePositionParams
+    npm/
+      mod.rs             # re-exports NPM calltypes
+      mint_params.rs
+      increase_liquidity_params.rs
+      decrease_liquidity_params.rs
+      collect_params.rs
+      close_position_params.rs
     path.rs              # V3 Path/path! construction and packed ABI encoding
     router.rs            # ergonomic constructors for SwapRouter02 parameter types
   objects/
-    mod.rs               # re-exports Factory, Pool, SwapRouter, TokenExt, token registries
+    mod.rs               # ABI aliases, public param structs, Factory/Pool/SwapRouter/Position/NPM/tokens
     factory.rs           # Factory: CREATE2 pool address, pool() helper
+    npm.rs               # NonfungiblePositionManager deployment + raw NPM calls
     pool.rs              # Pool: immutables + RPC state getters
+    position.rs           # Position NFT immutable metadata + live on-chain state methods
     swap_router.rs       # SwapRouter02 deployment + exact-input/output transactions
     token/
       mod.rs             # re-exports TokenExt + USDC/USDT/WBTC/... registries
       token.rs           # TokenExt: RPC metadata loading and ERC-20 approvals
       usdc.rs            # USDC::on_chain from Uniswap default-token-list
       ...                # usdt, wbtc, uni, usde, usdg, usdt0, link, dai, cbbtc, bnb
-    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / Erc20
-artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02)
+    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / NPM / Erc20
+artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, NPM)
 scripts/
   anvil.sh               # mainnet fork via Anvil
   fund.sh                # fund Anvil account with WETH/USDC/USDT/WBTC
@@ -51,20 +62,25 @@ scripts/
 
 | Type | Owns | Notes |
 | --- | --- | --- |
-| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter` | Entry point. Builder resolves factory (required) and SwapRouter02 (optional) from RPC chain id. |
+| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. |
 | `Factory` | `chain_id`, factory `address` | Offline CREATE2 derivation; `pool()` loads a `Pool` via provider. |
 | `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC. |
 | `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
+| `NonfungiblePositionManager` | `chain_id`, NPM `address` | Resolves official NPM deployments and submits direct position lifecycle transactions. |
+| `Position` | NPM identity, `token_id`, token addresses, fee, immutable tick range | NFT-backed position identity. Liquidity, owed tokens, owner, and collectable amounts are always fetched from chain. |
 | `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
 | `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). |
 | `USDC` / `USDT` / … | unit structs | Offline `on_chain(chain_id)` registries sourced from Uniswap default-token-list for mainnet/arbitrum/base/avalanche/optimism/polygon/tempo. |
 
 ### Construction paths
 
-1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`
+1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`, `NonfungiblePositionManager::from_chain`
 2. **From chain** — `Pool::from_address`, `Token::from_address` (needs provider); client `get_pool(token_a, token_b, fee)` → factory CREATE2 → `Pool::from_address`
+3. **Position NFTs** — client `get_position(token_id)` reads NPM once for immutable NFT metadata. `Position::state`, `Position::liquidity`, `Position::tokens_owed`, and `Position::collectable_amounts` refetch mutable state every call.
 
 Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, fee)), init_code_hash)` with `token0 < token1`. Init-code hash is an internal constant (zkSync uses a different hash / CREATE2 scheme).
+
+Position lifecycle: `create_position` mints a new NFT, `increase_position_liquidity` adds liquidity to the same immutable tick range, `decrease_position_liquidity` credits withdrawn amounts to NPM owed balances, `collect_position` transfers owed balances, and `close_position` atomically decreases all current liquidity, collects, and burns the empty NFT.
 
 ## Design rules
 
@@ -72,7 +88,7 @@ Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, 
 - Do not store values that are pure functions of other fields (e.g. pool address, `maxLiquidityPerTick`).
 - RPC methods take a `Provider` (or use the client’s provider) and return `Result<T, UniswapV3Error>` — not Alloy `contract::Result`.
 - Do not `impl` inherent methods on foreign types (`Token`); use extension traits in this crate.
-- ABI bindings live only in `objects/abi_definitions.rs`; JSON sources stay under `artifacts/`.
+- ABI bindings are generated only in `objects/abi_definitions.rs` (private); JSON sources stay under `artifacts/`. Re-export them with crate-local aliases exclusively from `objects/mod.rs` (`PoolContract`, `FactoryContract`, `SwapRouterContract`, `NpmContract`, `Erc20Contract`, plus public param structs). No other module may import `abi_definitions` directly.
 
 ## Errors
 
@@ -82,7 +98,8 @@ Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, 
 
 1. `./scripts/anvil.sh` — fork Ethereum mainnet
 2. `./scripts/fund.sh` — fund the Anvil test account
-3. `cargo run` — `bin/` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and exercises a swap (swap feature on via bin dependency)
+3. `cargo run` — `bin/` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and mints/closes a USDC/WETH position
+4. `cargo run -p uniswap-v3-rs-bin --example swap` — exact-input swap example
 
 ## CI
 

@@ -5,8 +5,11 @@ use alloy::{
 };
 use uniswap_sdk_core::entities::Token;
 
-#[cfg(feature = "swap")]
+#[cfg(any(feature = "swap", feature = "positions"))]
 use alloy::primitives::{TxHash, U256};
+
+#[cfg(feature = "positions")]
+use alloy::primitives::aliases::U160;
 
 use crate::{
     errors::UniswapV3Error,
@@ -14,8 +17,17 @@ use crate::{
 };
 
 #[cfg(feature = "swap")]
-use crate::calltypes::{
+use crate::objects::{
     ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
+};
+
+#[cfg(feature = "positions")]
+use crate::{
+    calltypes::ClosePositionParams,
+    objects::{
+        CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, MintParams,
+        NonfungiblePositionManager, Position,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -23,7 +35,10 @@ pub struct UniswapV3Client {
     rpc_url: String,
     provider: DynProvider,
     wallet: Option<EthereumWallet>,
+    #[cfg(feature = "swap")]
     swap_router: Option<SwapRouter>,
+    #[cfg(feature = "positions")]
+    position_manager: Option<NonfungiblePositionManager>,
     factory: Factory,
 }
 
@@ -52,6 +67,11 @@ impl UniswapV3Client {
         self.swap_router.as_ref()
     }
 
+    #[cfg(feature = "positions")]
+    pub fn position_manager(&self) -> Option<&NonfungiblePositionManager> {
+        self.position_manager.as_ref()
+    }
+
     pub async fn get_chain_id(&self) -> Result<u64, UniswapV3Error> {
         self.provider
             .get_chain_id()
@@ -76,6 +96,147 @@ impl UniswapV3Client {
         fee: u32,
     ) -> Result<Pool, UniswapV3Error> {
         self.factory.pool(token0, token1, fee, &self.provider).await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn get_position(&self, token_id: U256) -> Result<Position, UniswapV3Error> {
+        self.require_position_manager()?
+            .position(&self.provider, token_id)
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn get_position_count(&self, owner: Address) -> Result<U256, UniswapV3Error> {
+        self.require_position_manager()?
+            .balance_of(&self.provider, owner)
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn get_position_id(
+        &self,
+        owner: Address,
+        index: U256,
+    ) -> Result<U256, UniswapV3Error> {
+        self.require_position_manager()?
+            .token_of_owner_by_index(&self.provider, owner, index)
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn get_positions(&self, owner: Address) -> Result<Vec<Position>, UniswapV3Error> {
+        let count = self.get_position_count(owner).await?;
+        let count = usize::try_from(count).map_err(|error| {
+            UniswapV3Error::RpcError(format!("position count too large: {error}"))
+        })?;
+        let mut positions = Vec::with_capacity(count);
+
+        for index in 0..count {
+            let token_id = self.get_position_id(owner, U256::from(index)).await?;
+            positions.push(self.get_position(token_id).await?);
+        }
+
+        Ok(positions)
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn create_position(
+        &self,
+        params: MintParams,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        self.require_position_manager()?
+            .mint(&self.provider, params, value.unwrap_or_default())
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn increase_position_liquidity(
+        &self,
+        params: IncreaseLiquidityParams,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        self.require_position_manager()?
+            .increase_liquidity(&self.provider, params, value.unwrap_or_default())
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn decrease_position_liquidity(
+        &self,
+        params: DecreaseLiquidityParams,
+    ) -> Result<TxHash, UniswapV3Error> {
+        self.require_position_manager()?
+            .decrease_liquidity(&self.provider, params)
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn collect_position(&self, params: CollectParams) -> Result<TxHash, UniswapV3Error> {
+        self.require_position_manager()?
+            .collect(&self.provider, params)
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn burn_position(&self, position: &Position) -> Result<TxHash, UniswapV3Error> {
+        self.ensure_position_manager(position)?;
+        self.require_position_manager()?
+            .burn(&self.provider, position.token_id())
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn create_and_initialize_pool_if_necessary(
+        &self,
+        token0: Address,
+        token1: Address,
+        fee: u32,
+        sqrt_price_x96: U160,
+        value: Option<U256>,
+    ) -> Result<TxHash, UniswapV3Error> {
+        self.require_position_manager()?
+            .create_and_initialize_pool_if_necessary(
+                &self.provider,
+                token0,
+                token1,
+                fee,
+                sqrt_price_x96,
+                value.unwrap_or_default(),
+            )
+            .await
+    }
+
+    #[cfg(feature = "positions")]
+    pub async fn close_position(
+        &self,
+        position: &Position,
+        params: ClosePositionParams,
+    ) -> Result<TxHash, UniswapV3Error> {
+        self.ensure_position_manager(position)?;
+        let manager = self.require_position_manager()?;
+        let liquidity = position.liquidity(&self.provider).await?;
+        let mut data = Vec::with_capacity(if liquidity == 0 { 2 } else { 3 });
+
+        if liquidity != 0 {
+            data.push(
+                manager.decrease_liquidity_calldata(DecreaseLiquidityParams::from_token_id(
+                    position.token_id(),
+                    liquidity,
+                    params.amount0_min(),
+                    params.amount1_min(),
+                    params.deadline(),
+                )),
+            );
+        }
+
+        data.push(manager.collect_calldata(CollectParams::collect_all(
+            position.token_id(),
+            params.recipient(),
+        )));
+        data.push(manager.burn_calldata(position.token_id()));
+
+        manager.multicall(&self.provider, data, U256::ZERO).await
     }
 
     #[cfg(feature = "swap")]
@@ -132,6 +293,25 @@ impl UniswapV3Client {
             .as_ref()
             .ok_or_else(|| UniswapV3Error::BuildError("no swap router for this chain".to_string()))
     }
+
+    #[cfg(feature = "positions")]
+    fn require_position_manager(&self) -> Result<&NonfungiblePositionManager, UniswapV3Error> {
+        self.position_manager.as_ref().ok_or_else(|| {
+            UniswapV3Error::BuildError("no nonfungible position manager for this chain".to_string())
+        })
+    }
+
+    #[cfg(feature = "positions")]
+    fn ensure_position_manager(&self, position: &Position) -> Result<(), UniswapV3Error> {
+        let manager = self.require_position_manager()?;
+        if position.manager() != *manager {
+            return Err(UniswapV3Error::BuildError(
+                "position belongs to a different nonfungible position manager".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -183,6 +363,8 @@ impl UniswapV3ClientBuilder {
             UniswapV3Error::BuildError(format!("no V3 factory for chain id {chain_id}"))
         })?;
         let swap_router = SwapRouter::from_chain(chain_id);
+        #[cfg(feature = "positions")]
+        let position_manager = NonfungiblePositionManager::from_chain(chain_id);
 
         Ok(UniswapV3Client {
             rpc_url,
@@ -190,6 +372,8 @@ impl UniswapV3ClientBuilder {
             wallet: self.wallet,
             factory,
             swap_router,
+            #[cfg(feature = "positions")]
+            position_manager,
         })
     }
 }

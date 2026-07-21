@@ -4040,6 +4040,7 @@ dependencies = [
  "alloy-primitives",
  "dotenvy",
  "tokio",
+ "uniswap-sdk-core",
  "uniswap-v3-rs",
 ]
 

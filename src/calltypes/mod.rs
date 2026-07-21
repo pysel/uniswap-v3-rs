@@ -1,7 +1,12 @@
+#[cfg(feature = "positions")]
+mod npm;
+
 mod path;
 mod router;
 
-pub use path::Path;
-pub use router::{
-    ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
+#[cfg(feature = "positions")]
+pub use npm::{
+    ClosePositionParams, CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
+    MintParams,
 };
+pub use path::Path;

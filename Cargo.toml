@@ -9,8 +9,9 @@ default-members = ["bin"]
 resolver = "2"
 
 [features]
-default = []
+default = ["swap", "positions"]
 swap = []
+positions = []
 
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }

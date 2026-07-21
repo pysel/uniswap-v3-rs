@@ -9,7 +9,7 @@ use uniswap_sdk_core::prelude::{BaseCurrency, Error, Token};
 
 use crate::errors::UniswapV3Error;
 
-use super::{Factory, TokenExt, abi_definitions::V3Pool};
+use super::{Factory, PoolContract, TokenExt};
 
 /// Uniswap V3 tick bounds from `TickMath`.
 const MIN_TICK: i32 = -887_272;
@@ -57,7 +57,7 @@ impl Pool {
         address: Address,
         provider: &P,
     ) -> Result<Self, UniswapV3Error> {
-        let contract = V3Pool::new(address, provider);
+        let contract = PoolContract::new(address, provider);
 
         let chain_id = provider
             .get_chain_id()
@@ -107,6 +107,28 @@ impl Pool {
         }
 
         Ok(pool)
+    }
+
+    pub const fn min_tick() -> i32 {
+        MIN_TICK
+    }
+
+    pub const fn max_tick() -> i32 {
+        MAX_TICK
+    }
+
+    pub fn validate_ticks(&self, tick_lower: i32, tick_upper: i32) -> Result<(), Error> {
+        if tick_lower >= tick_upper {
+            return Err(Error::Invalid("TICK_ORDER"));
+        }
+        if tick_lower < Self::min_tick() || tick_upper > Self::max_tick() {
+            return Err(Error::Invalid("TICK_BOUNDS"));
+        }
+        if tick_lower % self.tick_spacing != 0 || tick_upper % self.tick_spacing != 0 {
+            return Err(Error::Invalid("TICK_SPACING"));
+        }
+
+        Ok(())
     }
 
     #[must_use]
@@ -201,8 +223,8 @@ impl Pool {
     async fn slot0<P: Provider>(
         &self,
         provider: &P,
-    ) -> Result<V3Pool::slot0Return, UniswapV3Error> {
-        V3Pool::new(self.address(), provider)
+    ) -> Result<PoolContract::slot0Return, UniswapV3Error> {
+        PoolContract::new(self.address(), provider)
             .slot0()
             .call()
             .await

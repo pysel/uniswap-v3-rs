@@ -6,7 +6,7 @@ use uniswap_sdk_core::prelude::{BaseCurrency, Token};
 
 use crate::errors::UniswapV3Error;
 
-use crate::objects::abi_definitions::Erc20;
+use crate::objects::Erc20Contract;
 
 pub trait TokenExt {
     fn from_address<P: Provider>(
@@ -35,7 +35,7 @@ impl TokenExt for Token {
         chain_id: u64,
         provider: &P,
     ) -> Result<Token, UniswapV3Error> {
-        let contract = Erc20::new(address, provider);
+        let contract = Erc20Contract::new(address, provider);
         let decimals = contract
             .decimals()
             .call()
@@ -53,7 +53,7 @@ impl TokenExt for Token {
         spender: Address,
         amount: U256,
     ) -> Result<TxHash, UniswapV3Error> {
-        let pending = Erc20::new(self.address(), provider)
+        let pending = Erc20Contract::new(self.address(), provider)
             .approve(spender, amount)
             .send()
             .await
