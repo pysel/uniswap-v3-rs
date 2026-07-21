@@ -21,11 +21,15 @@ src/
     path.rs              # V3 Path/path! construction and packed ABI encoding
     router.rs            # ergonomic constructors for SwapRouter02 parameter types
   objects/
-    mod.rs               # re-exports Factory, Pool, SwapRouter, TokenExt
+    mod.rs               # re-exports Factory, Pool, SwapRouter, TokenExt, token registries
     factory.rs           # Factory: CREATE2 pool address, pool() helper
     pool.rs              # Pool: immutables + RPC state getters
     swap_router.rs       # SwapRouter02 deployment + exact-input/output transactions
-    token.rs             # TokenExt: RPC metadata loading and ERC-20 approvals
+    token/
+      mod.rs             # re-exports TokenExt + USDC/USDT/WBTC/... registries
+      token.rs           # TokenExt: RPC metadata loading and ERC-20 approvals
+      usdc.rs            # USDC::on_chain from Uniswap default-token-list
+      ...                # usdt, wbtc, uni, usde, usdg, usdt0, link, dai, cbbtc, bnb
     abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / Erc20
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02)
 scripts/
@@ -44,6 +48,7 @@ scripts/
 | `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
 | `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
 | `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). |
+| `USDC` / `USDT` / … | unit structs | Offline `on_chain(chain_id)` registries sourced from Uniswap default-token-list for mainnet/arbitrum/base/avalanche/optimism/polygon/tempo. |
 
 ### Construction paths
 

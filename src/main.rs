@@ -1,12 +1,12 @@
+use alloy_primitives::U256;
 use std::{env, error::Error};
 use tokio;
 
 use alloy::signers::local::PrivateKeySigner;
-use uniswap_sdk_core::{prelude::*, token};
 
 use uniswap_v3_rs::calltypes::ExactInputParams;
 use uniswap_v3_rs::client::UniswapV3Client;
-use uniswap_v3_rs::objects::TokenExt;
+use uniswap_v3_rs::objects::{TokenExt, USDC, WETH};
 use uniswap_v3_rs::path;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -23,14 +23,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
     let chain_id = client.get_chain_id().await?;
-    let usdc = token!(
-        chain_id,
-        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        6,
-        "USDC",
-        "USD Coin"
-    );
-    let weth = WETH9::on_chain(chain_id).expect("WETH9 not deployed on chain");
+    let usdc = USDC::on_chain(chain_id).expect("USDC not deployed on chain");
+    let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
 
     usdc.approve_unlimited(&client.provider(), client.swap_router().unwrap().address())
         .await?;

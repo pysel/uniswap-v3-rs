@@ -6,7 +6,7 @@ use uniswap_sdk_core::prelude::{BaseCurrency, Token};
 
 use crate::errors::UniswapV3Error;
 
-use super::abi_definitions::Erc20;
+use crate::objects::abi_definitions::Erc20;
 
 pub trait TokenExt {
     fn from_address<P: Provider>(
