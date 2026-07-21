@@ -1,0 +1,16 @@
+[package]
+name = "uniswap-v3-rs-bin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "uniswap-v3-rs"
+path = "src/main.rs"
+
+[dependencies]
+uniswap-v3-rs = { path = "..", features = ["swap"] }
+alloy = { version = "2.2.0", features = ["signer-local"] }
+alloy-primitives = "1.6.1"
+dotenvy = "0.15.7"
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }

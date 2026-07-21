@@ -4027,10 +4027,20 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
- "dotenvy",
  "thiserror",
  "tokio",
  "uniswap-sdk-core",
+]
+
+[[package]]
+name = "uniswap-v3-rs-bin"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "dotenvy",
+ "tokio",
+ "uniswap-v3-rs",
 ]
 
 [[package]]

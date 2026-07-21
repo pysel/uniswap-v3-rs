@@ -1,6 +1,5 @@
 use alloy_primitives::U256;
 use std::{env, error::Error};
-use tokio;
 
 use alloy::signers::local::PrivateKeySigner;
 
@@ -26,9 +25,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let usdc = USDC::on_chain(chain_id).expect("USDC not deployed on chain");
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
 
-    usdc.approve_unlimited(&client.provider(), client.swap_router().unwrap().address())
+    usdc.approve_unlimited(client.provider(), client.swap_router().unwrap().address())
         .await?;
-    weth.approve_unlimited(&client.provider(), client.swap_router().unwrap().address())
+    weth.approve_unlimited(client.provider(), client.swap_router().unwrap().address())
         .await?;
 
     let path = path!(usdc, 500, weth)?;

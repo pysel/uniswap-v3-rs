@@ -3,19 +3,18 @@ name = "uniswap-v3-rs"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [".", "bin"]
+default-members = ["bin"]
+resolver = "2"
+
 [features]
 default = []
 swap = []
 
-[[bin]]
-name = "uniswap-v3-rs"
-path = "src/main.rs"
-required-features = ["full"]
-
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }
 alloy-primitives = "1.6.1"
-dotenvy = "0.15.7"
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
 uniswap-sdk-core = "6.0.0"

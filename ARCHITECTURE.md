@@ -12,16 +12,19 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `swap` | no | Enables `UniswapV3Client::swap_exact_*` helpers. Not default so dependents opt in. Local binary: `cargo run --features swap`. |
+| `swap` | no | Enables `UniswapV3Client::swap_exact_*` helpers. Not default for lib dependents. The `bin/` package enables it for local `cargo run`. |
 
 ## Layout
 
 ```text
+Cargo.toml               # lib package + workspace (members: ., bin)
+bin/                     # local test binary; depends on lib with features=["swap"]
+  Cargo.toml
+  src/main.rs            # loads .env and exercises a swap
 src/
   lib.rs                 # public modules: calltypes, client, errors, objects
   client.rs              # UniswapV3Client (+ builder)
   errors.rs              # UniswapV3Error
-  main.rs                # local manual test binary (loads .env)
   calltypes/
     mod.rs               # re-exports router parameter types and Path
     path.rs              # V3 Path/path! construction and packed ABI encoding
@@ -79,7 +82,7 @@ Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, 
 
 1. `./scripts/anvil.sh` — fork Ethereum mainnet
 2. `./scripts/fund.sh` — fund the Anvil test account
-3. `cargo run --features swap` — `main.rs` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and exercises a swap
+3. `cargo run` — `bin/` loads `.env` (`LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`) and exercises a swap (swap feature on via bin dependency)
 
 ## CI
 
