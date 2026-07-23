@@ -31,12 +31,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let path = path!(usdc, 500, weth)?;
 
-    let params = ExactInputParams::new(
-        &path,
-        client.wallet().unwrap().default_signer().address(),
-        U256::from(1000000),
-        U256::from(0),
-    )?;
+    let params = ExactInputParams::builder(&path)
+        .recipient(client.wallet().unwrap().default_signer().address())
+        .amount_in(U256::from(1_000_000))
+        .then_default()
+        .build()?;
     let response = client.swap_exact_input(params, None).await?;
     println!("swap tx: {}", response.tx_hash);
 

@@ -77,7 +77,7 @@ scripts/
 | --- | --- | --- |
 | `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. |
 | `Factory` | `chain_id`, factory `address` | Offline CREATE2 derivation; `pool()` loads a `Pool` via provider. |
-| `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC. |
+| `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC; can select a spacing-aligned tick within a conservative signed bps distance from the live token1/token0 midprice. |
 | `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
 | `NonfungiblePositionManager` | `chain_id`, NPM `address` | Resolves official NPM deployments and submits direct position lifecycle transactions. |
 | `Position` | NPM identity, `token_id`, token addresses, fee, immutable tick range | NFT-backed position identity. Liquidity, owed tokens, owner, and collectable amounts are always fetched from chain. |
@@ -96,6 +96,8 @@ Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, 
 Position lifecycle: `create_position` mints a new NFT, `increase_position_liquidity` adds liquidity to the same immutable tick range, `decrease_position_liquidity` credits withdrawn amounts to NPM owed balances, `collect_position` transfers owed balances, and `close_position` atomically decreases all current liquidity, collects, and burns the empty NFT.
 
 Write methods return typed responses as soon as the transaction is accepted by the provider. Each response exposes `tx_hash` immediately and a typed future (for example, `amount_out`, `position`, or `amounts`) that waits for the receipt and resolves the actual event-backed Solidity result.
+
+Router parameter builders provide direct amount-bound setters. `then_default()` deliberately leaves swaps unprotected (`amountOutMinimum = 0`, `amountInMaximum = U256::MAX`) until quoted-slippage support is added.
 
 ## Design rules
 

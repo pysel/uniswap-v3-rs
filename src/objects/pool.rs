@@ -1,11 +1,12 @@
 use alloy::{
     primitives::{
-        Address,
+        Address, U256, U512,
         aliases::{I24, U160},
     },
     providers::Provider,
 };
 use uniswap_sdk_core::prelude::{BaseCurrency, Error, Token};
+use uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick;
 
 use crate::errors::UniswapV3Error;
 
@@ -14,6 +15,7 @@ use super::{Factory, PoolContract, TokenExt};
 /// Uniswap V3 tick bounds from `TickMath`.
 const MIN_TICK: i32 = -887_272;
 const MAX_TICK: i32 = 887_272;
+const BPS_DENOMINATOR: i64 = 10_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pool {
@@ -193,6 +195,90 @@ impl Pool {
         Ok(self.slot0(provider).await?.tick)
     }
 
+    pub async fn get_both_ticks_away_from_mid<P: Provider>(
+        &self,
+        provider: &P,
+        bps: u16,
+    ) -> Result<(i32, i32), UniswapV3Error> {
+        let bps_pos = i32::from(bps);
+        let bps_neg = -i32::from(bps);
+
+        let lower_tick = self.get_tick_away_from_mid(provider, bps_neg).await?;
+        let upper_tick = self.get_tick_away_from_mid(provider, bps_pos).await?;
+        Ok((lower_tick, upper_tick))
+    }
+
+    /// Returns a spacing-aligned tick within `bps` of the live token1/token0 midprice.
+    ///
+    /// Positive values select a tick above the midprice; negative values select one below it.
+    /// The returned tick never exceeds the requested price distance.
+    pub async fn get_tick_away_from_mid<P: Provider>(
+        &self,
+        provider: &P,
+        bps: i32,
+    ) -> Result<i32, UniswapV3Error> {
+        let factor = BPS_DENOMINATOR + i64::from(bps);
+        if factor <= 0 {
+            return Err(UniswapV3Error::Invalid("BPS".to_string()));
+        }
+
+        let mid_sqrt_price = U256::from(self.sqrt_price_x96(provider).await?);
+        let target_factor = U512::from(factor as u64);
+        let mid_price = U512::from(mid_sqrt_price) * U512::from(mid_sqrt_price);
+        let target_price = mid_price * target_factor;
+        let denominator = U512::from(BPS_DENOMINATOR as u64);
+
+        let min_index = MIN_TICK.div_euclid(self.tick_spacing)
+            + i32::from(MIN_TICK.rem_euclid(self.tick_spacing) != 0);
+        let max_index = MAX_TICK.div_euclid(self.tick_spacing);
+        let mut lower = min_index;
+        let mut upper = max_index;
+
+        while lower < upper {
+            let middle = lower + (upper - lower + 1) / 2;
+            let tick = middle * self.tick_spacing;
+            let sqrt_price = get_sqrt_ratio_at_tick(tick)?;
+            let price = U512::from(sqrt_price) * U512::from(sqrt_price);
+
+            if price * denominator <= target_price {
+                lower = middle;
+            } else {
+                upper = middle - 1;
+            }
+        }
+
+        let lower_tick = lower * self.tick_spacing;
+        let lower_sqrt_price = get_sqrt_ratio_at_tick(lower_tick)?;
+        let lower_price = U512::from(lower_sqrt_price) * U512::from(lower_sqrt_price);
+        let tick = if bps < 0 && lower_price * denominator < target_price {
+            lower_tick
+                .checked_add(self.tick_spacing)
+                .ok_or_else(|| UniswapV3Error::Invalid("TICK_BOUNDS".to_string()))?
+        } else {
+            lower_tick
+        };
+
+        let tick_sqrt_price = get_sqrt_ratio_at_tick(tick)?;
+        let tick_price = U512::from(tick_sqrt_price) * U512::from(tick_sqrt_price);
+        let is_above_mid = tick_price > mid_price;
+        let is_below_mid = tick_price < mid_price;
+        let within_target = if bps >= 0 {
+            tick_price * denominator <= target_price
+        } else {
+            tick_price * denominator >= target_price
+        };
+
+        if !within_target
+            || (bps > 0 && !is_above_mid)
+            || (bps < 0 && !is_below_mid)
+            || (bps == 0 && tick_price != mid_price)
+        {
+            return Err(UniswapV3Error::TickNotFoundWithinBps);
+        }
+
+        Ok(tick)
+    }
+
     pub async fn observation_index<P: Provider>(
         &self,
         provider: &P,
@@ -240,3 +326,4 @@ impl Pool {
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
     }
 }
+

@@ -25,7 +25,8 @@ pub(super) fn create_position_result(
 ) -> TransactionFuture<CreatePositionResult> {
     Box::pin(async move {
         let receipt = confirmed_receipt(pending).await?;
-        let event = extract_manager_event::<NpmContract::IncreaseLiquidity>(&receipt, manager)?.data;
+        let event =
+            extract_manager_event::<NpmContract::IncreaseLiquidity>(&receipt, manager)?.data;
         Ok(CreatePositionResult {
             token_id: event.tokenId,
             liquidity: event.liquidity,
@@ -41,7 +42,8 @@ pub(super) fn increase_liquidity_result(
 ) -> TransactionFuture<IncreaseLiquidityResult> {
     Box::pin(async move {
         let receipt = confirmed_receipt(pending).await?;
-        let event = extract_manager_event::<NpmContract::IncreaseLiquidity>(&receipt, manager)?.data;
+        let event =
+            extract_manager_event::<NpmContract::IncreaseLiquidity>(&receipt, manager)?.data;
         Ok(IncreaseLiquidityResult {
             liquidity: event.liquidity,
             amount0: event.amount0,
@@ -56,7 +58,8 @@ pub(super) fn decrease_liquidity_result(
 ) -> TransactionFuture<DecreaseLiquidityResult> {
     Box::pin(async move {
         let receipt = confirmed_receipt(pending).await?;
-        let event = extract_manager_event::<NpmContract::DecreaseLiquidity>(&receipt, manager)?.data;
+        let event =
+            extract_manager_event::<NpmContract::DecreaseLiquidity>(&receipt, manager)?.data;
         Ok(DecreaseLiquidityResult {
             amount0: event.amount0,
             amount1: event.amount1,

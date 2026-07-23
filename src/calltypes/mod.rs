@@ -15,7 +15,9 @@ pub use npm::{
 };
 pub use path::Path;
 pub use router::{
-    ExactInputParams, ExactInputResponse, ExactInputSingleParams, ExactInputSingleResponse,
-    ExactOutputParams, ExactOutputResponse, ExactOutputSingleParams, ExactOutputSingleResponse,
+    ExactInputParams, ExactInputParamsBuilder, ExactInputResponse, ExactInputSingleParams,
+    ExactInputSingleParamsBuilder, ExactInputSingleResponse, ExactOutputParams,
+    ExactOutputParamsBuilder, ExactOutputResponse, ExactOutputSingleParams,
+    ExactOutputSingleParamsBuilder, ExactOutputSingleResponse,
 };
 pub use transaction_future::TransactionFuture;

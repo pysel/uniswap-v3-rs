@@ -9,7 +9,7 @@ use uniswap_v3_rs::objects::{CreatePositionParams, TokenExt, USDC, WETH};
 
 const FEE: u32 = 500;
 /// Width of the minted range in tick-spacing units on each side of the current tick.
-const RANGE_WIDTH_SPACINGS: i32 = 10;
+const RANGE_WIDTH_BPS: u16 = 100;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -43,16 +43,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("approved USDC + WETH for NPM");
 
     let pool = client.get_pool(usdc.clone(), weth.clone(), FEE).await?;
-    let tick = pool.tick(client.provider()).await?.as_i32();
-    let spacing = pool.tick_spacing();
-    let aligned = floor_div(tick, spacing) * spacing;
-    let tick_lower = aligned - spacing * RANGE_WIDTH_SPACINGS;
-    let tick_upper = aligned + spacing * RANGE_WIDTH_SPACINGS;
 
-    println!(
-        "pool {} fee={FEE} tick={tick} spacing={spacing} mint range=[{tick_lower}, {tick_upper}]",
-        pool.address()
-    );
+    let (tick_lower, tick_upper) = pool.get_both_ticks_away_from_mid(client.provider(), RANGE_WIDTH_BPS/2).await?;
 
     // token0/token1 are address-sorted; match desired amounts to that order.
     // 1 USDC + 0.001 WETH
@@ -86,15 +78,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     Ok(())
-}
-
-/// Division toward −∞ (matches Uniswap tick compression for negatives).
-fn floor_div(value: i32, divisor: i32) -> i32 {
-    let quotient = value / divisor;
-    let remainder = value % divisor;
-    if remainder != 0 && value < 0 {
-        quotient - 1
-    } else {
-        quotient
-    }
 }

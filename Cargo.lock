@@ -1644,6 +1644,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "eyre"
+version = "0.6.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
+dependencies = [
+ "indenter",
+ "once_cell",
+]
+
+[[package]]
 name = "fastnum"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2239,6 +2249,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "indenter"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 
 [[package]]
 name = "indexmap"
@@ -4030,6 +4046,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "uniswap-sdk-core",
+ "uniswap_v3_math",
 ]
 
 [[package]]
@@ -4042,6 +4059,17 @@ dependencies = [
  "tokio",
  "uniswap-sdk-core",
  "uniswap-v3-rs",
+]
+
+[[package]]
+name = "uniswap_v3_math"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e393498a831893ce69ed6e1d06615e400bd1e8f97e9fcd113324f2d610fe6d45"
+dependencies = [
+ "alloy-primitives",
+ "eyre",
+ "thiserror",
 ]
 
 [[package]]
