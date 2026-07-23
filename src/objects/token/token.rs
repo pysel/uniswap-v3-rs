@@ -2,7 +2,10 @@ use alloy::{
     primitives::{Address, TxHash, U256},
     providers::Provider,
 };
-use uniswap_sdk_core::{entities::BaseCurrencyCore, prelude::{BaseCurrency, Token}};
+use uniswap_sdk_core::{
+    entities::BaseCurrencyCore,
+    prelude::{BaseCurrency, Token},
+};
 
 use crate::errors::UniswapV3Error;
 
