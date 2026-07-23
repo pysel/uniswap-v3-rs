@@ -1,8 +1,20 @@
-use alloy::primitives::U256;
+use alloy::primitives::{TxHash, U256};
 
+use crate::calltypes::TransactionFuture;
 use crate::objects::Position;
 
 pub use crate::objects::DecreaseLiquidityParams;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecreaseLiquidityResult {
+    pub amount0: U256,
+    pub amount1: U256,
+}
+
+pub struct DecreaseLiquidityResponse {
+    pub tx_hash: TxHash,
+    pub amounts: TransactionFuture<DecreaseLiquidityResult>,
+}
 
 impl DecreaseLiquidityParams {
     #[must_use]

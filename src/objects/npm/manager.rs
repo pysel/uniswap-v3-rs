@@ -1,18 +1,30 @@
 use alloy::{
+    network::Ethereum,
     primitives::{
-        Address, Bytes, TxHash, U256,
+        Address, Bytes, U256,
         aliases::{U24, U160},
     },
-    providers::Provider,
+    providers::{PendingTransactionBuilder, Provider},
     sol_types::SolCall,
 };
 use uniswap_sdk_core::prelude::{Error, NONFUNGIBLE_POSITION_MANAGER_ADDRESSES};
 
-use crate::{errors::UniswapV3Error, objects::PositionsReturn};
+use crate::{
+    calltypes::{
+        BurnPositionResponse, ClosePositionResponse, CollectPositionResponse,
+        CreateAndInitializePoolResponse, CreatePositionResponse, DecreaseLiquidityResponse,
+        IncreaseLiquidityResponse,
+    },
+    errors::UniswapV3Error,
+};
 
 use super::{
-    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, CreatePositionParams, NpmContract,
-    Position,
+    burn_result, close_position_result, collect_position_result, create_pool_result,
+    create_position_result, decrease_liquidity_result, increase_liquidity_result,
+};
+use crate::objects::{
+    CollectParams, CreatePositionParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
+    NpmContract, Position, PositionsReturn,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,17 +138,22 @@ impl NonfungiblePositionManager {
         provider: &P,
         params: CreatePositionParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
-        if value.is_zero() {
-            return self.send_mint(provider, params, value).await;
-        }
+    ) -> Result<CreatePositionResponse, UniswapV3Error> {
+        let pending = if value.is_zero() {
+            self.send_mint(provider, params, value).await?
+        } else {
+            let contract = NpmContract::new(self.address, provider);
+            let data = vec![
+                contract.mint(params).calldata().clone(),
+                contract.refundETH().calldata().clone(),
+            ];
+            self.send_multicall(provider, data, value).await?
+        };
 
-        let contract = NpmContract::new(self.address, provider);
-        let data = vec![
-            contract.mint(params).calldata().clone(),
-            contract.refundETH().calldata().clone(),
-        ];
-        self.multicall(provider, data, value).await
+        Ok(CreatePositionResponse {
+            tx_hash: *pending.tx_hash(),
+            position: create_position_result(pending, self.address),
+        })
     }
 
     pub(crate) async fn increase_liquidity<P: Provider>(
@@ -144,69 +161,83 @@ impl NonfungiblePositionManager {
         provider: &P,
         params: IncreaseLiquidityParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
-        if value.is_zero() {
-            return self.send_increase_liquidity(provider, params, value).await;
-        }
+    ) -> Result<IncreaseLiquidityResponse, UniswapV3Error> {
+        let pending = if value.is_zero() {
+            self.send_increase_liquidity(provider, params, value)
+                .await?
+        } else {
+            let contract = NpmContract::new(self.address, provider);
+            let data = vec![
+                contract.increaseLiquidity(params).calldata().clone(),
+                contract.refundETH().calldata().clone(),
+            ];
+            self.send_multicall(provider, data, value).await?
+        };
 
-        let contract = NpmContract::new(self.address, provider);
-        let data = vec![
-            contract.increaseLiquidity(params).calldata().clone(),
-            contract.refundETH().calldata().clone(),
-        ];
-        self.multicall(provider, data, value).await
+        Ok(IncreaseLiquidityResponse {
+            tx_hash: *pending.tx_hash(),
+            result: increase_liquidity_result(pending, self.address),
+        })
     }
 
     pub(crate) async fn decrease_liquidity<P: Provider>(
         &self,
         provider: &P,
         params: DecreaseLiquidityParams,
-    ) -> Result<TxHash, UniswapV3Error> {
-        self.send_decrease_liquidity(provider, params).await
+    ) -> Result<DecreaseLiquidityResponse, UniswapV3Error> {
+        let pending = self.send_decrease_liquidity(provider, params).await?;
+
+        Ok(DecreaseLiquidityResponse {
+            tx_hash: *pending.tx_hash(),
+            amounts: decrease_liquidity_result(pending, self.address),
+        })
     }
 
     pub(crate) async fn collect<P: Provider>(
         &self,
         provider: &P,
         params: CollectParams,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<CollectPositionResponse, UniswapV3Error> {
         let pending = NpmContract::new(self.address, provider)
             .collect(params)
             .send()
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(CollectPositionResponse {
+            tx_hash: *pending.tx_hash(),
+            amounts: collect_position_result(pending, self.address),
+        })
     }
 
     pub(crate) async fn burn<P: Provider>(
         &self,
         provider: &P,
         token_id: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<BurnPositionResponse, UniswapV3Error> {
         let pending = NpmContract::new(self.address, provider)
             .burn(token_id)
             .send()
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(BurnPositionResponse {
+            tx_hash: *pending.tx_hash(),
+            confirmation: burn_result(pending),
+        })
     }
 
-    pub(crate) async fn multicall<P: Provider>(
+    pub(crate) async fn close<P: Provider>(
         &self,
         provider: &P,
         data: Vec<Bytes>,
-        value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
-        let pending = NpmContract::new(self.address, provider)
-            .multicall(data)
-            .value(value)
-            .send()
-            .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+    ) -> Result<ClosePositionResponse, UniswapV3Error> {
+        let pending = self.send_multicall(provider, data, U256::ZERO).await?;
 
-        Ok(*pending.tx_hash())
+        Ok(ClosePositionResponse {
+            tx_hash: *pending.tx_hash(),
+            amounts: close_position_result(pending, self.address),
+        })
     }
 
     pub(crate) async fn create_and_initialize_pool_if_necessary<P: Provider>(
@@ -217,7 +248,7 @@ impl NonfungiblePositionManager {
         fee: u32,
         sqrt_price_x96: U160,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<CreateAndInitializePoolResponse, UniswapV3Error> {
         let pending = NpmContract::new(self.address, provider)
             .createAndInitializePoolIfNecessary(token0, token1, U24::from(fee), sqrt_price_x96)
             .value(value)
@@ -225,7 +256,18 @@ impl NonfungiblePositionManager {
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(CreateAndInitializePoolResponse {
+            tx_hash: *pending.tx_hash(),
+            pool: create_pool_result(
+                pending,
+                provider.root().clone(),
+                self.address,
+                token0,
+                token1,
+                fee,
+                sqrt_price_x96,
+            ),
+        })
     }
 
     pub(crate) fn decrease_liquidity_calldata(&self, params: DecreaseLiquidityParams) -> Bytes {
@@ -249,15 +291,13 @@ impl NonfungiblePositionManager {
         provider: &P,
         params: CreatePositionParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
-        let pending = NpmContract::new(self.address, provider)
+    ) -> Result<PendingTransactionBuilder<Ethereum>, UniswapV3Error> {
+        NpmContract::new(self.address, provider)
             .mint(params)
             .value(value)
             .send()
             .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
-
-        Ok(*pending.tx_hash())
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
     }
 
     async fn send_increase_liquidity<P: Provider>(
@@ -265,28 +305,38 @@ impl NonfungiblePositionManager {
         provider: &P,
         params: IncreaseLiquidityParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
-        let pending = NpmContract::new(self.address, provider)
+    ) -> Result<PendingTransactionBuilder<Ethereum>, UniswapV3Error> {
+        NpmContract::new(self.address, provider)
             .increaseLiquidity(params)
             .value(value)
             .send()
             .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
-
-        Ok(*pending.tx_hash())
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
     }
 
     async fn send_decrease_liquidity<P: Provider>(
         &self,
         provider: &P,
         params: DecreaseLiquidityParams,
-    ) -> Result<TxHash, UniswapV3Error> {
-        let pending = NpmContract::new(self.address, provider)
+    ) -> Result<PendingTransactionBuilder<Ethereum>, UniswapV3Error> {
+        NpmContract::new(self.address, provider)
             .decreaseLiquidity(params)
             .send()
             .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
+    }
 
-        Ok(*pending.tx_hash())
+    async fn send_multicall<P: Provider>(
+        &self,
+        provider: &P,
+        data: Vec<Bytes>,
+        value: U256,
+    ) -> Result<PendingTransactionBuilder<Ethereum>, UniswapV3Error> {
+        NpmContract::new(self.address, provider)
+            .multicall(data)
+            .value(value)
+            .send()
+            .await
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
     }
 }

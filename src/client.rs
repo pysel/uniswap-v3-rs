@@ -6,7 +6,7 @@ use alloy::{
 use uniswap_sdk_core::entities::Token;
 
 #[cfg(any(feature = "swap", feature = "positions"))]
-use alloy::primitives::{TxHash, U256};
+use alloy::primitives::U256;
 
 #[cfg(feature = "positions")]
 use alloy::primitives::aliases::U160;
@@ -17,15 +17,20 @@ use crate::{
 };
 
 #[cfg(feature = "swap")]
-use crate::objects::{
-    ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
+use crate::calltypes::{
+    ExactInputParams, ExactInputResponse, ExactInputSingleParams, ExactInputSingleResponse,
+    ExactOutputParams, ExactOutputResponse, ExactOutputSingleParams, ExactOutputSingleResponse,
 };
 
 #[cfg(feature = "positions")]
 use crate::{
-    calltypes::ClosePositionParams,
+    calltypes::{
+        BurnPositionResponse, ClosePositionParams, ClosePositionResponse, CollectPositionResponse,
+        CreateAndInitializePoolResponse, CreatePositionResponse, DecreaseLiquidityResponse,
+        IncreaseLiquidityResponse,
+    },
     objects::{
-        CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, CreatePositionParams,
+        CollectParams, CreatePositionParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
         NonfungiblePositionManager, Position,
     },
 };
@@ -144,7 +149,7 @@ impl UniswapV3Client {
         &self,
         params: CreatePositionParams,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<CreatePositionResponse, UniswapV3Error> {
         self.require_position_manager()?
             .mint(&self.provider, params, value.unwrap_or_default())
             .await
@@ -155,7 +160,7 @@ impl UniswapV3Client {
         &self,
         params: IncreaseLiquidityParams,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<IncreaseLiquidityResponse, UniswapV3Error> {
         self.require_position_manager()?
             .increase_liquidity(&self.provider, params, value.unwrap_or_default())
             .await
@@ -165,21 +170,27 @@ impl UniswapV3Client {
     pub async fn decrease_position_liquidity(
         &self,
         params: DecreaseLiquidityParams,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<DecreaseLiquidityResponse, UniswapV3Error> {
         self.require_position_manager()?
             .decrease_liquidity(&self.provider, params)
             .await
     }
 
     #[cfg(feature = "positions")]
-    pub async fn collect_position(&self, params: CollectParams) -> Result<TxHash, UniswapV3Error> {
+    pub async fn collect_position(
+        &self,
+        params: CollectParams,
+    ) -> Result<CollectPositionResponse, UniswapV3Error> {
         self.require_position_manager()?
             .collect(&self.provider, params)
             .await
     }
 
     #[cfg(feature = "positions")]
-    pub async fn burn_position(&self, position: &Position) -> Result<TxHash, UniswapV3Error> {
+    pub async fn burn_position(
+        &self,
+        position: &Position,
+    ) -> Result<BurnPositionResponse, UniswapV3Error> {
         self.ensure_position_manager(position)?;
         self.require_position_manager()?
             .burn(&self.provider, position.token_id())
@@ -194,7 +205,7 @@ impl UniswapV3Client {
         fee: u32,
         sqrt_price_x96: U160,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<CreateAndInitializePoolResponse, UniswapV3Error> {
         self.require_position_manager()?
             .create_and_initialize_pool_if_necessary(
                 &self.provider,
@@ -212,7 +223,7 @@ impl UniswapV3Client {
         &self,
         position: &Position,
         params: ClosePositionParams,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ClosePositionResponse, UniswapV3Error> {
         self.ensure_position_manager(position)?;
         let manager = self.require_position_manager()?;
         let liquidity = position.liquidity(&self.provider).await?;
@@ -236,7 +247,7 @@ impl UniswapV3Client {
         )));
         data.push(manager.burn_calldata(position.token_id()));
 
-        manager.multicall(&self.provider, data, U256::ZERO).await
+        manager.close(&self.provider, data).await
     }
 
     #[cfg(feature = "swap")]
@@ -244,7 +255,7 @@ impl UniswapV3Client {
         &self,
         params: ExactInputParams,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactInputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
             .exact_input(&self.provider, params, value)
@@ -256,7 +267,7 @@ impl UniswapV3Client {
         &self,
         params: ExactOutputParams,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactOutputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
             .exact_output(&self.provider, params, value)
@@ -268,7 +279,7 @@ impl UniswapV3Client {
         &self,
         params: ExactInputSingleParams,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
             .exact_input_single(&self.provider, params, value)
@@ -280,7 +291,7 @@ impl UniswapV3Client {
         &self,
         params: ExactOutputSingleParams,
         value: Option<U256>,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
             .exact_output_single(&self.provider, params, value)

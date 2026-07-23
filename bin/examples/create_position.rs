@@ -1,4 +1,4 @@
-use std::{collections::HashSet, env, error::Error};
+use std::{env, error::Error};
 
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::U256;
@@ -42,13 +42,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     println!("approved USDC + WETH for NPM");
 
-    let existing_ids: HashSet<_> = client
-        .get_positions(owner)
-        .await?
-        .into_iter()
-        .map(|position| position.token_id())
-        .collect();
-
     let pool = client.get_pool(usdc.clone(), weth.clone(), FEE).await?;
     let tick = pool.tick(client.provider()).await?.as_i32();
     let spacing = pool.tick_spacing();
@@ -78,28 +71,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .then_default()
         .build()?;
 
-    let mint_tx = client.create_position(create_position_params, None).await?;
-    println!("mint tx: {mint_tx:?}");
+    let response = client.create_position(create_position_params, None).await?;
+    println!("mint tx: {}", response.tx_hash);
 
-    let created = client
-        .get_positions(owner)
-        .await?
-        .into_iter()
-        .find(|position| !existing_ids.contains(&position.token_id()))
-        .expect("minted position NFT not found for owner");
-
-    let state = created.state(client.provider()).await?;
-    println!("created token_id={}", created.token_id());
+    let result = response.position.await?;
+    println!("created token_id={}", result.token_id);
     println!(
-        "  ticks=[{}, {}] fee={} liquidity={}",
-        created.tick_lower(),
-        created.tick_upper(),
-        created.fee(),
-        state.liquidity
+        "  ticks=[{tick_lower}, {tick_upper}] fee={FEE} liquidity={} amount0={} amount1={}",
+        result.liquidity, result.amount0, result.amount1
     );
     println!(
         "close with: cargo run -p uniswap-v3-rs-bin --example close_position -- {}",
-        created.token_id()
+        result.token_id
     );
 
     Ok(())

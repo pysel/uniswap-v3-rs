@@ -1,4 +1,6 @@
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, TxHash, U256};
+
+use crate::calltypes::TransactionFuture;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClosePositionParams {
@@ -6,6 +8,17 @@ pub struct ClosePositionParams {
     amount0_min: U256,
     amount1_min: U256,
     deadline: U256,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClosePositionResult {
+    pub amount0: U256,
+    pub amount1: U256,
+}
+
+pub struct ClosePositionResponse {
+    pub tx_hash: TxHash,
+    pub amounts: TransactionFuture<ClosePositionResult>,
 }
 
 impl ClosePositionParams {

@@ -1,8 +1,20 @@
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, TxHash, U256};
 
+use crate::calltypes::TransactionFuture;
 use crate::objects::Position;
 
 pub use crate::objects::CollectParams;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CollectPositionResult {
+    pub amount0: U256,
+    pub amount1: U256,
+}
+
+pub struct CollectPositionResponse {
+    pub tx_hash: TxHash,
+    pub amounts: TransactionFuture<CollectPositionResult>,
+}
 
 impl CollectParams {
     #[must_use]

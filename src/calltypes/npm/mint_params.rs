@@ -1,12 +1,26 @@
 use std::time::SystemTime;
 
-use alloy::primitives::{Address, U256, aliases::U24};
+use alloy::primitives::{Address, TxHash, U256, aliases::U24};
 use uniswap_sdk_core::prelude::BaseCurrency;
 
+use crate::calltypes::TransactionFuture;
 use crate::errors::UniswapV3Error;
 use crate::objects::Pool;
 
 pub use crate::objects::CreatePositionParams;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CreatePositionResult {
+    pub token_id: U256,
+    pub liquidity: u128,
+    pub amount0: U256,
+    pub amount1: U256,
+}
+
+pub struct CreatePositionResponse {
+    pub tx_hash: TxHash,
+    pub position: TransactionFuture<CreatePositionResult>,
+}
 
 const DEFAULT_DEADLINE_FROM_NOW_SECS: u64 = 60 * 60 * 24 * 30; // 30 days from now
 const DEFAULT_AMOUNT0_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount

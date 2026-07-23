@@ -32,7 +32,7 @@ src/
   client.rs              # UniswapV3Client (+ builder)
   errors.rs              # UniswapV3Error
   calltypes/
-    mod.rs               # re-exports Path and ClosePositionParams
+    mod.rs               # re-exports parameter, response, and transaction-future types
     npm/
       mod.rs             # re-exports NPM calltypes
       mint_params.rs
@@ -40,15 +40,24 @@ src/
       decrease_liquidity_params.rs
       collect_params.rs
       close_position_params.rs
+      burn_position_response.rs
+      create_and_initialize_pool_response.rs
     path.rs              # V3 Path/path! construction and packed ABI encoding
-    router.rs            # ergonomic constructors for SwapRouter02 parameter types
+    router/              # one file per SwapRouter02 parameter/response pair
+    transaction_future.rs # boxed future returned inside transaction responses
   objects/
     mod.rs               # ABI aliases, public param structs, Factory/Pool/SwapRouter/Position/NPM/tokens
     factory.rs           # Factory: CREATE2 pool address, pool() helper
-    npm.rs               # NonfungiblePositionManager deployment + raw NPM calls
+    npm/
+      mod.rs             # exports NonfungiblePositionManager and internal result helpers
+      manager.rs         # NonfungiblePositionManager definition and RPC methods
+      result.rs          # receipt-backed NPM transaction result futures
     pool.rs              # Pool: immutables + RPC state getters
     position.rs           # Position NFT immutable metadata + live on-chain state methods
-    swap_router.rs       # SwapRouter02 deployment + exact-input/output transactions
+    router/
+      mod.rs             # exports SwapRouter and internal result helpers
+      router.rs          # SwapRouter02 definition and exact-input/output methods
+      result.rs          # receipt-backed swap amount futures
     token/
       mod.rs             # re-exports TokenExt + USDC/USDT/WBTC/... registries
       token.rs           # TokenExt: RPC metadata loading and ERC-20 approvals
@@ -85,6 +94,8 @@ scripts/
 Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, fee)), init_code_hash)` with `token0 < token1`. Init-code hash is an internal constant (zkSync uses a different hash / CREATE2 scheme).
 
 Position lifecycle: `create_position` mints a new NFT, `increase_position_liquidity` adds liquidity to the same immutable tick range, `decrease_position_liquidity` credits withdrawn amounts to NPM owed balances, `collect_position` transfers owed balances, and `close_position` atomically decreases all current liquidity, collects, and burns the empty NFT.
+
+Write methods return typed responses as soon as the transaction is accepted by the provider. Each response exposes `tx_hash` immediately and a typed future (for example, `amount_out`, `position`, or `amounts`) that waits for the receipt and resolves the actual event-backed Solidity result.
 
 ## Design rules
 

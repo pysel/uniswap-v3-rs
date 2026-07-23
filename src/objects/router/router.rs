@@ -1,12 +1,19 @@
 use alloy::{
-    primitives::{Address, TxHash, U256},
+    primitives::{Address, U256},
     providers::Provider,
 };
 use uniswap_sdk_core::prelude::{Error, SWAP_ROUTER_02_ADDRESSES};
 
-use crate::errors::UniswapV3Error;
+use crate::{
+    calltypes::{
+        ExactInputResponse, ExactInputSingleResponse, ExactOutputResponse,
+        ExactOutputSingleResponse,
+    },
+    errors::UniswapV3Error,
+};
 
-use super::{
+use super::{amount_in_future, amount_out_future};
+use crate::objects::{
     ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
     SwapRouterContract,
 };
@@ -48,7 +55,7 @@ impl SwapRouter {
         provider: &P,
         params: ExactInputParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactInputResponse, UniswapV3Error> {
         let pending = SwapRouterContract::new(self.address, provider)
             .exactInput(params)
             .value(value)
@@ -56,7 +63,10 @@ impl SwapRouter {
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(ExactInputResponse {
+            tx_hash: *pending.tx_hash(),
+            amount_out: amount_out_future(pending),
+        })
     }
 
     pub(crate) async fn exact_input_single<P: Provider>(
@@ -64,7 +74,7 @@ impl SwapRouter {
         provider: &P,
         params: ExactInputSingleParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
         let pending = SwapRouterContract::new(self.address, provider)
             .exactInputSingle(params)
             .value(value)
@@ -72,7 +82,10 @@ impl SwapRouter {
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(ExactInputSingleResponse {
+            tx_hash: *pending.tx_hash(),
+            amount_out: amount_out_future(pending),
+        })
     }
 
     pub(crate) async fn exact_output<P: Provider>(
@@ -80,7 +93,7 @@ impl SwapRouter {
         provider: &P,
         params: ExactOutputParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactOutputResponse, UniswapV3Error> {
         let pending = SwapRouterContract::new(self.address, provider)
             .exactOutput(params)
             .value(value)
@@ -88,7 +101,10 @@ impl SwapRouter {
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(ExactOutputResponse {
+            tx_hash: *pending.tx_hash(),
+            amount_in: amount_in_future(pending),
+        })
     }
 
     pub(crate) async fn exact_output_single<P: Provider>(
@@ -96,7 +112,7 @@ impl SwapRouter {
         provider: &P,
         params: ExactOutputSingleParams,
         value: U256,
-    ) -> Result<TxHash, UniswapV3Error> {
+    ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
         let pending = SwapRouterContract::new(self.address, provider)
             .exactOutputSingle(params)
             .value(value)
@@ -104,6 +120,9 @@ impl SwapRouter {
             .await
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 
-        Ok(*pending.tx_hash())
+        Ok(ExactOutputSingleResponse {
+            tx_hash: *pending.tx_hash(),
+            amount_in: amount_in_future(pending),
+        })
     }
 }

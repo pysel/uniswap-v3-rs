@@ -43,13 +43,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
             + 600,
     );
 
-    let close_tx = client
+    let response = client
         .close_position(
             &position,
             ClosePositionParams::new(owner, U256::ZERO, U256::ZERO, deadline),
         )
         .await?;
-    println!("close tx: {close_tx:?}");
+    println!("close tx: {}", response.tx_hash);
+
+    let amounts = response.amounts.await?;
+    println!(
+        "collected amount0={} amount1={}",
+        amounts.amount0, amounts.amount1
+    );
 
     Ok(())
 }

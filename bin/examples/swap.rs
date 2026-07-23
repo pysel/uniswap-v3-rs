@@ -37,9 +37,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         U256::from(1000000),
         U256::from(0),
     )?;
-    let result = client.swap_exact_input(params, None).await?;
+    let response = client.swap_exact_input(params, None).await?;
+    println!("swap tx: {}", response.tx_hash);
 
-    println!("result: {result:?}");
+    println!("amount out: {}", response.amount_out.await?);
 
     Ok(())
 }

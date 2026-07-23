@@ -5,7 +5,7 @@ mod npm;
 mod pool;
 #[cfg(feature = "positions")]
 mod position;
-mod swap_router;
+mod router;
 mod token;
 
 pub(crate) use abi_definitions::Erc20 as Erc20Contract;
@@ -20,7 +20,8 @@ pub(crate) use abi_definitions::V3Pool as PoolContract;
 pub(crate) use NpmContract::positionsReturn as PositionsReturn;
 #[cfg(feature = "positions")]
 pub use abi_definitions::INonfungiblePositionManager::{
-    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, MintParams as CreatePositionParams,
+    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
+    MintParams as CreatePositionParams,
 };
 pub use abi_definitions::IV3SwapRouter::{
     ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
@@ -32,5 +33,5 @@ pub use npm::NonfungiblePositionManager;
 pub use pool::Pool;
 #[cfg(feature = "positions")]
 pub use position::{Position, PositionState, TokenAmounts};
-pub use swap_router::SwapRouter;
+pub use router::SwapRouter;
 pub use token::{BNB, CbBTC, DAI, LINK, TokenExt, UNI, USDC, USDG, USDT, USDT0, USDe, WBTC, WETH};
