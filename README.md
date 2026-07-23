@@ -13,7 +13,7 @@ decoding, and deployment address lookup from scratch.
 
 ```toml
 [dependencies]
-uniswap-v3-rs = { git = "https://github.com/pysel/uniswap-v3-rs", features = ["swap", "positions"] }
+uniswap-v3-rs = { version = "0.1", features = ["swap", "positions"] }
 ```
 
 Create a client with an Alloy signer:

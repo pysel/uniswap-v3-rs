@@ -2,6 +2,22 @@
 name = "uniswap-v3-rs"
 version = "0.1.0"
 edition = "2024"
+description = "Opinionated Alloy-native Uniswap V3 SDK for Rust"
+license = "MIT"
+authors = ["Ruslan Akhtariev"]
+repository = "https://github.com/pysel/uniswap-v3-rs"
+homepage = "https://github.com/pysel/uniswap-v3-rs"
+documentation = "https://docs.rs/uniswap-v3-rs"
+readme = "README.md"
+keywords = ["uniswap", "ethereum", "defi", "alloy", "amm"]
+categories = ["cryptography::cryptocurrencies", "api-bindings", "asynchronous"]
+include = [
+    "src/**/*",
+    "artifacts/**/*",
+    "Cargo.toml",
+    "LICENSE",
+    "README.md",
+]
 
 [workspace]
 members = [".", "bin"]
