@@ -18,5 +18,5 @@ alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "si
 alloy-primitives = "1.6.1"
 thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
-uniswap-sdk-core = "6.0.0"
+uniswap-sdk-core = "7.0.0"
 uniswap_v3_math = "0.6.2"
