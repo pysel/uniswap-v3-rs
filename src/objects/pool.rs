@@ -326,4 +326,3 @@ impl Pool {
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
     }
 }
-

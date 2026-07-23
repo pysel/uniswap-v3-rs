@@ -44,7 +44,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let pool = client.get_pool(usdc.clone(), weth.clone(), FEE).await?;
 
-    let (tick_lower, tick_upper) = pool.get_both_ticks_away_from_mid(client.provider(), RANGE_WIDTH_BPS/2).await?;
+    let (tick_lower, tick_upper) = pool
+        .get_both_ticks_away_from_mid(client.provider(), RANGE_WIDTH_BPS / 2)
+        .await?;
 
     // token0/token1 are address-sorted; match desired amounts to that order.
     // 1 USDC + 0.001 WETH
