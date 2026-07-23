@@ -7,6 +7,6 @@ mod router;
 #[cfg(feature = "positions")]
 pub use npm::{
     ClosePositionParams, CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
-    MintParams,
+    CreatePositionParams,
 };
 pub use path::Path;

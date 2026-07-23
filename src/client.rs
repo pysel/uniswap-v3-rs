@@ -25,7 +25,7 @@ use crate::objects::{
 use crate::{
     calltypes::ClosePositionParams,
     objects::{
-        CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, MintParams,
+        CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, CreatePositionParams,
         NonfungiblePositionManager, Position,
     },
 };
@@ -142,7 +142,7 @@ impl UniswapV3Client {
     #[cfg(feature = "positions")]
     pub async fn create_position(
         &self,
-        params: MintParams,
+        params: CreatePositionParams,
         value: Option<U256>,
     ) -> Result<TxHash, UniswapV3Error> {
         self.require_position_manager()?

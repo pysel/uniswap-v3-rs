@@ -6,15 +6,15 @@ use uniswap_sdk_core::prelude::BaseCurrency;
 use crate::errors::UniswapV3Error;
 use crate::objects::Pool;
 
-pub use crate::objects::MintParams;
+pub use crate::objects::CreatePositionParams;
 
 const DEFAULT_DEADLINE_FROM_NOW_SECS: u64 = 60 * 60 * 24 * 30; // 30 days from now
-const DEFAULT_AMOUNT0_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount0
+const DEFAULT_AMOUNT0_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount
 const DEFAULT_AMOUNT1_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount1
 
-impl MintParams {
-    pub fn builder(pool: &Pool) -> MintParamsBuilder {
-        MintParamsBuilder {
+impl CreatePositionParams {
+    pub fn builder(pool: &Pool) -> CreatePositionParamsBuilder {
+        CreatePositionParamsBuilder {
             pool: pool.clone(),
             tick_lower: None,
             tick_upper: None,
@@ -56,7 +56,7 @@ impl MintParams {
     }
 }
 
-pub struct MintParamsBuilder {
+pub struct CreatePositionParamsBuilder {
     pool: Pool,
     tick_lower: Option<i32>,
     tick_upper: Option<i32>,
@@ -68,7 +68,7 @@ pub struct MintParamsBuilder {
     deadline: Option<U256>,
 }
 
-impl MintParamsBuilder {
+impl CreatePositionParamsBuilder {
     pub fn tick_lower(mut self, tick_lower: i32) -> Self {
         self.tick_lower = Some(tick_lower);
         self
@@ -131,7 +131,7 @@ impl MintParamsBuilder {
         self
     }
 
-    pub fn build(self) -> Result<MintParams, UniswapV3Error> {
+    pub fn build(self) -> Result<CreatePositionParams, UniswapV3Error> {
         let tick_lower = self
             .tick_lower
             .ok_or_else(|| UniswapV3Error::Invalid("TICK_LOWER".to_string()))?;
@@ -159,7 +159,7 @@ impl MintParamsBuilder {
 
         let (tick_lower, tick_upper) = self.pool.validate_ticks(tick_lower, tick_upper)?;
 
-        Ok(MintParams {
+        Ok(CreatePositionParams {
             token0: self.pool.token0().address(),
             token1: self.pool.token1().address(),
             fee: U24::from(self.pool.fee()),

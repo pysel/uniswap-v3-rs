@@ -5,7 +5,7 @@ use alloy_primitives::U256;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use uniswap_v3_rs::client::UniswapV3Client;
-use uniswap_v3_rs::objects::{MintParams, TokenExt, USDC, WETH};
+use uniswap_v3_rs::objects::{CreatePositionParams, TokenExt, USDC, WETH};
 
 const FEE: u32 = 500;
 /// Width of the minted range in tick-spacing units on each side of the current tick.
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         (weth.from_amount(1) / U256::from(1000), usdc.from_amount(1))
     };
 
-    let mint_params = MintParams::builder(&pool)
+    let create_position_params = CreatePositionParams::builder(&pool)
         .tick_lower(tick_lower)
         .tick_upper(tick_upper)
         .amount0_desired(amount0_desired)
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .then_default()
         .build()?;
 
-    let mint_tx = client.create_position(mint_params, None).await?;
+    let mint_tx = client.create_position(create_position_params, None).await?;
     println!("mint tx: {mint_tx:?}");
 
     let created = client

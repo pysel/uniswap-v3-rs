@@ -20,7 +20,7 @@ pub(crate) use abi_definitions::V3Pool as PoolContract;
 pub(crate) use NpmContract::positionsReturn as PositionsReturn;
 #[cfg(feature = "positions")]
 pub use abi_definitions::INonfungiblePositionManager::{
-    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, MintParams,
+    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, MintParams as CreatePositionParams,
 };
 pub use abi_definitions::IV3SwapRouter::{
     ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,

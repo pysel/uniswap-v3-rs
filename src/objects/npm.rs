@@ -11,7 +11,7 @@ use uniswap_sdk_core::prelude::{Error, NONFUNGIBLE_POSITION_MANAGER_ADDRESSES};
 use crate::{errors::UniswapV3Error, objects::PositionsReturn};
 
 use super::{
-    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, MintParams, NpmContract,
+    CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams, CreatePositionParams, NpmContract,
     Position,
 };
 
@@ -124,7 +124,7 @@ impl NonfungiblePositionManager {
     pub(crate) async fn mint<P: Provider>(
         &self,
         provider: &P,
-        params: MintParams,
+        params: CreatePositionParams,
         value: U256,
     ) -> Result<TxHash, UniswapV3Error> {
         if value.is_zero() {
@@ -247,7 +247,7 @@ impl NonfungiblePositionManager {
     async fn send_mint<P: Provider>(
         &self,
         provider: &P,
-        params: MintParams,
+        params: CreatePositionParams,
         value: U256,
     ) -> Result<TxHash, UniswapV3Error> {
         let pending = NpmContract::new(self.address, provider)
