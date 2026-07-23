@@ -9,18 +9,6 @@ The goal: make swaps and concentrated-liquidity positions feel like normal Rust
 instead of making every application rebuild contract calls, path encoding, tick math, receipt
 decoding, and deployment address lookup from scratch.
 
-It currently includes:
-
-- exact-input and exact-output swaps, including multi-hop paths
-- typed builders for SwapRouter02 and NonfungiblePositionManager calls
-- position minting, reading, increasing, decreasing, collecting, closing, and burning
-- live, spacing-aligned tick ranges calculated from the pool midprice
-- known factory, router, NPM, and token addresses across supported chains
-- transaction responses that expose the hash immediately, then let you await the useful result
-
-The SDK stays fairly close to Uniswap's contracts. It helps with the annoying parts, but it does not
-pretend approvals, slippage, token ordering, or transaction failures do not exist.
-
 ## Install
 
 ```toml
