@@ -32,6 +32,7 @@ pub trait TokenExt {
     ) -> impl Future<Output = Result<TxHash, UniswapV3Error>>;
 
     /// Converts a whole-token `amount` into raw units: `amount * 10^decimals`.
+    #[allow(clippy::wrong_self_convention)] // Conversion requires token decimals
     fn from_amount(&self, amount: u64) -> U256;
 }
 

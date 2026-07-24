@@ -11,9 +11,7 @@ use crate::{
         QuoteExactOutputSingleParams, QuoteExactOutputSingleResult,
     },
     errors::UniswapV3Error,
-    objects::{
-        QuoteExactInputSingleAbiParams, QuoteExactOutputSingleAbiParams, QuoterV2Contract,
-    },
+    objects::{QuoteExactInputSingleAbiParams, QuoteExactOutputSingleAbiParams, QuoterV2Contract},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,10 +51,7 @@ impl QuoterV2 {
         provider: &P,
         params: QuoteExactInputParams,
     ) -> Result<QuoteExactInputResult, UniswapV3Error> {
-        let path = params
-            .path
-            .bytes(false)
-            .map_err(UniswapV3Error::from)?;
+        let path = params.path.bytes(false).map_err(UniswapV3Error::from)?;
         let result = QuoterV2Contract::new(self.address, provider)
             .quoteExactInput(path, params.amount_in)
             .call()
@@ -78,10 +73,7 @@ impl QuoterV2 {
         provider: &P,
         params: QuoteExactInputSingleParams,
     ) -> Result<QuoteExactInputSingleResult, UniswapV3Error> {
-        let (token_in, token_out, fee) = params
-            .path
-            .single_hop()
-            .map_err(UniswapV3Error::from)?;
+        let (token_in, token_out, fee) = params.path.single_hop().map_err(UniswapV3Error::from)?;
         let abi_params = QuoteExactInputSingleAbiParams {
             tokenIn: token_in.address(),
             tokenOut: token_out.address(),
@@ -111,10 +103,7 @@ impl QuoterV2 {
         provider: &P,
         params: QuoteExactOutputParams,
     ) -> Result<QuoteExactOutputResult, UniswapV3Error> {
-        let path = params
-            .path
-            .bytes(true)
-            .map_err(UniswapV3Error::from)?;
+        let path = params.path.bytes(true).map_err(UniswapV3Error::from)?;
         let result = QuoterV2Contract::new(self.address, provider)
             .quoteExactOutput(path, params.amount_out)
             .call()
@@ -136,10 +125,7 @@ impl QuoterV2 {
         provider: &P,
         params: QuoteExactOutputSingleParams,
     ) -> Result<QuoteExactOutputSingleResult, UniswapV3Error> {
-        let (token_in, token_out, fee) = params
-            .path
-            .single_hop()
-            .map_err(UniswapV3Error::from)?;
+        let (token_in, token_out, fee) = params.path.single_hop().map_err(UniswapV3Error::from)?;
         let abi_params = QuoteExactOutputSingleAbiParams {
             tokenIn: token_in.address(),
             tokenOut: token_out.address(),

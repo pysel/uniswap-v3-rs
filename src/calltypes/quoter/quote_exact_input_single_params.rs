@@ -1,9 +1,6 @@
 use alloy::primitives::{U256, aliases::U160};
 
-use crate::{
-    calltypes::Path,
-    errors::UniswapV3Error,
-};
+use crate::{calltypes::Path, errors::UniswapV3Error};
 
 #[derive(Clone, Debug)]
 pub struct QuoteExactInputSingleParams {
@@ -48,7 +45,6 @@ impl QuoteExactInputSingleParams {
     }
 }
 
-
 pub struct QuoteExactInputSingleParamsBuilder {
     path: Path,
     amount_in: Option<U256>,
@@ -81,8 +77,9 @@ impl QuoteExactInputSingleParamsBuilder {
             &self.path,
             self.amount_in
                 .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT_IN".to_string()))?,
-            self.sqrt_price_limit_x96
-                .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("SQRT_PRICE_LIMIT_X96".to_string()))?,
+            self.sqrt_price_limit_x96.ok_or_else(|| {
+                UniswapV3Error::RequiredFieldMissing("SQRT_PRICE_LIMIT_X96".to_string())
+            })?,
         )
     }
 }

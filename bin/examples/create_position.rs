@@ -50,7 +50,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // token0/token1 are address-sorted; match desired amounts to that order.
     // 1 USDC + 0.001 WETH
-    let (amount0_desired, amount1_desired) = (usdc.from_amount(1), weth.from_amount(1) / U256::from(1000));
+    let (amount0_desired, amount1_desired) =
+        (usdc.from_amount(1), weth.from_amount(1) / U256::from(1000));
 
     let create_position_params = CreatePositionParams::builder(&pool)
         .tick_lower(tick_lower)

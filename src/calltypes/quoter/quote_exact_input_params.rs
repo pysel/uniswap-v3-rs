@@ -1,9 +1,6 @@
 use alloy::primitives::{U256, aliases::U160};
 
-use crate::{
-    calltypes::Path,
-    errors::UniswapV3Error,
-};
+use crate::{calltypes::Path, errors::UniswapV3Error};
 
 #[derive(Clone, Debug)]
 pub struct QuoteExactInputParams {

@@ -41,6 +41,7 @@ impl CreatePositionParams {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: &Pool,
         tick_lower: i32,
@@ -135,11 +136,11 @@ impl CreatePositionParamsBuilder {
             self.amount1_min = Some(amount1_desired * amount1_min_bps_of_desired / bps_denominator);
         }
 
-        if self.deadline.is_none() {
-            if let Ok(now) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-                let deadline = now.as_secs() + DEFAULT_DEADLINE_FROM_NOW_SECS;
-                self.deadline = Some(U256::from(deadline));
-            }
+        if self.deadline.is_none()
+            && let Ok(now) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+        {
+            let deadline = now.as_secs() + DEFAULT_DEADLINE_FROM_NOW_SECS;
+            self.deadline = Some(U256::from(deadline));
         }
 
         self

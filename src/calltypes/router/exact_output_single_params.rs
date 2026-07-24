@@ -100,9 +100,9 @@ impl ExactOutputSingleParamsBuilder {
 
     #[cfg(feature = "swap")]
     pub fn apply_amount_in_slippage(mut self, bps: BPS) -> Result<Self, UniswapV3Error> {
-        let amount_in_maximum = self.amount_in_maximum.ok_or_else(|| {
-            UniswapV3Error::RequiredFieldMissing("AMOUNT_IN_MAXIMUM".to_string())
-        })?;
+        let amount_in_maximum = self
+            .amount_in_maximum
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT_IN_MAXIMUM".to_string()))?;
         self.amount_in_maximum = Some(apply_positive_slippage(amount_in_maximum, bps)?);
         Ok(self)
     }

@@ -9,7 +9,8 @@ pub(crate) fn apply_negative_slippage(amount: U256, bps: BPS) -> Result<U256, Un
     let bps = bps.get();
     if bps > BPS::denominator() {
         return Err(UniswapV3Error::Math(format!(
-            "slippage bps {bps} exceeds {}", BPS::denominator()
+            "slippage bps {bps} exceeds {}",
+            BPS::denominator()
         )));
     }
 

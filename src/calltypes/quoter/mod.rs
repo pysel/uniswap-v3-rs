@@ -13,6 +13,5 @@ pub use quote_exact_output_params::{
     QuoteExactOutputParams, QuoteExactOutputParamsBuilder, QuoteExactOutputResult,
 };
 pub use quote_exact_output_single_params::{
-    QuoteExactOutputSingleParams, QuoteExactOutputSingleParamsBuilder,
-    QuoteExactOutputSingleResult,
+    QuoteExactOutputSingleParams, QuoteExactOutputSingleParamsBuilder, QuoteExactOutputSingleResult,
 };

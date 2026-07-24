@@ -125,13 +125,19 @@ impl Pool {
         tick_upper: i32,
     ) -> Result<(I24, I24), UniswapV3Error> {
         if tick_lower >= tick_upper {
-            return Err(UniswapV3Error::RequiredFieldMissing("TICK_ORDER".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing(
+                "TICK_ORDER".to_string(),
+            ));
         }
         if tick_lower < Self::min_tick() || tick_upper > Self::max_tick() {
-            return Err(UniswapV3Error::RequiredFieldMissing("TICK_BOUNDS".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing(
+                "TICK_BOUNDS".to_string(),
+            ));
         }
         if tick_lower % self.tick_spacing != 0 || tick_upper % self.tick_spacing != 0 {
-            return Err(UniswapV3Error::RequiredFieldMissing("TICK_SPACING".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing(
+                "TICK_SPACING".to_string(),
+            ));
         }
 
         let tick_lower_i24 = I24::try_from(tick_lower)
@@ -201,7 +207,9 @@ impl Pool {
         bps: BPS,
     ) -> Result<(i32, i32), UniswapV3Error> {
         let lower_tick = self.get_tick_away_from_mid(provider, bps.neg()).await?;
-        let upper_tick = self.get_tick_away_from_mid(provider, bps.get().into()).await?;
+        let upper_tick = self
+            .get_tick_away_from_mid(provider, bps.get().into())
+            .await?;
         Ok((lower_tick, upper_tick))
     }
 
