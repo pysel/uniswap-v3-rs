@@ -6,8 +6,8 @@ pub enum UniswapV3Error {
     BuildError(String),
     #[error("RPC call failed: {0}")]
     RpcError(String),
-    #[error("invalid argument: {0}")]
-    Invalid(String),
+    #[error("required field missing: {0}")]
+    RequiredFieldMissing(String),
     #[error("tick not found within bps")]
     TickNotFoundWithinBps,
     #[error("invalid pool: {0}")]

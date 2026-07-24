@@ -148,28 +148,28 @@ impl CreatePositionParamsBuilder {
     pub fn build(self) -> Result<CreatePositionParams, UniswapV3Error> {
         let tick_lower = self
             .tick_lower
-            .ok_or_else(|| UniswapV3Error::Invalid("TICK_LOWER".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("TICK_LOWER".to_string()))?;
         let tick_upper = self
             .tick_upper
-            .ok_or_else(|| UniswapV3Error::Invalid("TICK_UPPER".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("TICK_UPPER".to_string()))?;
         let amount0_desired = self
             .amount0_desired
-            .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT0_DESIRED".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT0_DESIRED".to_string()))?;
         let amount1_desired = self
             .amount1_desired
-            .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT1_DESIRED".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT1_DESIRED".to_string()))?;
         let amount0_min = self
             .amount0_min
-            .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT0_MIN".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT0_MIN".to_string()))?;
         let amount1_min = self
             .amount1_min
-            .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT1_MIN".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT1_MIN".to_string()))?;
         let recipient = self
             .recipient
-            .ok_or_else(|| UniswapV3Error::Invalid("RECIPIENT".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("RECIPIENT".to_string()))?;
         let deadline = self
             .deadline
-            .ok_or_else(|| UniswapV3Error::Invalid("DEADLINE".to_string()))?;
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("DEADLINE".to_string()))?;
 
         let (tick_lower, tick_upper) = self.pool.validate_ticks(tick_lower, tick_upper)?;
 

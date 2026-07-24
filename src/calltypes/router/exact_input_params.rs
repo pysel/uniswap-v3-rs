@@ -6,6 +6,9 @@ use crate::{
     errors::UniswapV3Error,
 };
 
+#[cfg(feature = "swap")]
+use crate::calltypes::{BPS, QuoteExactInputResult, apply_negative_slippage};
+
 pub use crate::objects::ExactInputParams;
 
 pub struct ExactInputResponse {
@@ -46,6 +49,18 @@ pub struct ExactInputParamsBuilder {
     amount_out_minimum: Option<U256>,
 }
 
+#[cfg(feature = "swap")]
+impl From<QuoteExactInputResult> for ExactInputParamsBuilder {
+    fn from(result: QuoteExactInputResult) -> Self {
+        Self {
+            path: result.path,
+            recipient: None,
+            amount_in: Some(result.amount_in),
+            amount_out_minimum: Some(result.amount_out),
+        }
+    }
+}
+
 impl ExactInputParamsBuilder {
     #[must_use]
     pub fn recipient(mut self, recipient: Address) -> Self {
@@ -65,6 +80,15 @@ impl ExactInputParamsBuilder {
         self
     }
 
+    #[cfg(feature = "swap")]
+    pub fn apply_amount_out_slippage(mut self, bps: BPS) -> Result<Self, UniswapV3Error> {
+        let amount_out_minimum = self.amount_out_minimum.ok_or_else(|| {
+            UniswapV3Error::RequiredFieldMissing("AMOUNT_OUT_MINIMUM".to_string())
+        })?;
+        self.amount_out_minimum = Some(apply_negative_slippage(amount_out_minimum, bps)?);
+        Ok(self)
+    }
+
     #[must_use]
     pub fn then_default(mut self) -> Self {
         if self.amount_out_minimum.is_none() {
@@ -77,11 +101,12 @@ impl ExactInputParamsBuilder {
         ExactInputParams::new(
             &self.path,
             self.recipient
-                .ok_or_else(|| UniswapV3Error::Invalid("RECIPIENT".to_string()))?,
+                .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("RECIPIENT".to_string()))?,
             self.amount_in
-                .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT_IN".to_string()))?,
-            self.amount_out_minimum
-                .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT_OUT_MINIMUM".to_string()))?,
+                .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT_IN".to_string()))?,
+            self.amount_out_minimum.ok_or_else(|| {
+                UniswapV3Error::RequiredFieldMissing("AMOUNT_OUT_MINIMUM".to_string())
+            })?,
         )
         .map_err(UniswapV3Error::from)
     }

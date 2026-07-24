@@ -9,6 +9,9 @@ use crate::{
     errors::UniswapV3Error,
 };
 
+#[cfg(feature = "swap")]
+use crate::calltypes::{BPS, QuoteExactOutputSingleResult, apply_positive_slippage};
+
 pub use crate::objects::ExactOutputSingleParams;
 
 pub struct ExactOutputSingleResponse {
@@ -57,6 +60,19 @@ pub struct ExactOutputSingleParamsBuilder {
     sqrt_price_limit_x96: Option<U160>,
 }
 
+#[cfg(feature = "swap")]
+impl From<QuoteExactOutputSingleResult> for ExactOutputSingleParamsBuilder {
+    fn from(result: QuoteExactOutputSingleResult) -> Self {
+        Self {
+            path: result.path,
+            recipient: None,
+            amount_out: Some(result.amount_out),
+            amount_in_maximum: Some(result.amount_in),
+            sqrt_price_limit_x96: Some(result.sqrt_price_limit_x96),
+        }
+    }
+}
+
 impl ExactOutputSingleParamsBuilder {
     #[must_use]
     pub fn recipient(mut self, recipient: Address) -> Self {
@@ -82,6 +98,15 @@ impl ExactOutputSingleParamsBuilder {
         self
     }
 
+    #[cfg(feature = "swap")]
+    pub fn apply_amount_in_slippage(mut self, bps: BPS) -> Result<Self, UniswapV3Error> {
+        let amount_in_maximum = self.amount_in_maximum.ok_or_else(|| {
+            UniswapV3Error::RequiredFieldMissing("AMOUNT_IN_MAXIMUM".to_string())
+        })?;
+        self.amount_in_maximum = Some(apply_positive_slippage(amount_in_maximum, bps)?);
+        Ok(self)
+    }
+
     #[must_use]
     pub fn then_default(mut self) -> Self {
         if self.amount_in_maximum.is_none() {
@@ -97,13 +122,15 @@ impl ExactOutputSingleParamsBuilder {
         ExactOutputSingleParams::new(
             &self.path,
             self.recipient
-                .ok_or_else(|| UniswapV3Error::Invalid("RECIPIENT".to_string()))?,
+                .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("RECIPIENT".to_string()))?,
             self.amount_out
-                .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT_OUT".to_string()))?,
-            self.amount_in_maximum
-                .ok_or_else(|| UniswapV3Error::Invalid("AMOUNT_IN_MAXIMUM".to_string()))?,
-            self.sqrt_price_limit_x96
-                .ok_or_else(|| UniswapV3Error::Invalid("SQRT_PRICE_LIMIT_X96".to_string()))?,
+                .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("AMOUNT_OUT".to_string()))?,
+            self.amount_in_maximum.ok_or_else(|| {
+                UniswapV3Error::RequiredFieldMissing("AMOUNT_IN_MAXIMUM".to_string())
+            })?,
+            self.sqrt_price_limit_x96.ok_or_else(|| {
+                UniswapV3Error::RequiredFieldMissing("SQRT_PRICE_LIMIT_X96".to_string())
+            })?,
         )
         .map_err(UniswapV3Error::from)
     }

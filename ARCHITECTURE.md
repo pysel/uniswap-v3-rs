@@ -12,7 +12,7 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `swap` | no | Enables `UniswapV3Client::swap_exact_*` helpers. Not default for lib dependents. Enabled by `bin/` for local examples. |
+| `swap` | no | Enables SwapRouter02 execution and QuoterV2 estimate helpers. Not default for lib dependents. Enabled by `bin/` for local examples. |
 | `positions` | no | Enables NPM position reads and lifecycle helpers (`create`, `increase`, `decrease`, `collect`, `close`). Enabled by `bin/` for local examples. |
 
 ## Layout
@@ -42,8 +42,11 @@ src/
       close_position_params.rs
       burn_position_response.rs
       create_and_initialize_pool_response.rs
+    bps.rs               # BPS newtype (u16) with percent/neg helpers
     path.rs              # V3 Path/path! construction and packed ABI encoding
+    quoter/              # one file per QuoterV2 parameter/result pair
     router/              # one file per SwapRouter02 parameter/response pair
+    slippage.rs          # quote→swap amount bound adjustments by BPS
     transaction_future.rs # boxed future returned inside transaction responses
   objects/
     mod.rs               # ABI aliases, public param structs, Factory/Pool/SwapRouter/Position/NPM/tokens
@@ -54,6 +57,9 @@ src/
       result.rs          # receipt-backed NPM transaction result futures
     pool.rs              # Pool: immutables + RPC state getters
     position.rs           # Position NFT immutable metadata + live on-chain state methods
+    quoter/
+      mod.rs             # exports QuoterV2
+      quoter.rs          # QuoterV2 definition and eth_call quote methods
     router/
       mod.rs             # exports SwapRouter and internal result helpers
       router.rs          # SwapRouter02 definition and exact-input/output methods
@@ -63,8 +69,8 @@ src/
       token.rs           # TokenExt: RPC metadata loading and ERC-20 approvals
       usdc.rs            # USDC::on_chain from Uniswap default-token-list
       ...                # usdt, wbtc, uni, usde, usdg, usdt0, link, dai, cbbtc, bnb
-    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / NPM / Erc20
-artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, NPM)
+    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / QuoterV2 / NPM / Erc20
+artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
   anvil.sh               # mainnet fork via Anvil
   fund.sh                # fund Anvil account with WETH/USDC/USDT/WBTC
@@ -75,10 +81,11 @@ scripts/
 
 | Type | Owns | Notes |
 | --- | --- | --- |
-| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. |
+| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter`, optional `QuoterV2`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. |
 | `Factory` | `chain_id`, factory `address` | Offline CREATE2 derivation; `pool()` loads a `Pool` via provider. |
 | `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC; can select a spacing-aligned tick within a conservative signed bps distance from the live token1/token0 midprice. |
 | `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
+| `QuoterV2` | `chain_id`, quoter `address` | Resolves QuoterV2 deployments and estimates exact-input/output execution with `eth_call`. |
 | `NonfungiblePositionManager` | `chain_id`, NPM `address` | Resolves official NPM deployments and submits direct position lifecycle transactions. |
 | `Position` | NPM identity, `token_id`, token addresses, fee, immutable tick range | NFT-backed position identity. Liquidity, owed tokens, owner, and collectable amounts are always fetched from chain. |
 | `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
@@ -87,7 +94,7 @@ scripts/
 
 ### Construction paths
 
-1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`, `NonfungiblePositionManager::from_chain`
+1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`, `QuoterV2::from_chain`, `NonfungiblePositionManager::from_chain`
 2. **From chain** — `Pool::from_address`, `Token::from_address` (needs provider); client `get_pool(token_a, token_b, fee)` → factory CREATE2 → `Pool::from_address`
 3. **Position NFTs** — client `get_position(token_id)` reads NPM once for immutable NFT metadata. `Position::state`, `Position::liquidity`, `Position::tokens_owed`, and `Position::collectable_amounts` refetch mutable state every call.
 
@@ -97,7 +104,11 @@ Position lifecycle: `create_position` mints a new NFT, `increase_position_liquid
 
 Write methods return typed responses as soon as the transaction is accepted by the provider. Each response exposes `tx_hash` immediately and a typed future (for example, `amount_out`, `position`, or `amounts`) that waits for the receipt and resolves the actual event-backed Solidity result.
 
-Router parameter builders provide direct amount-bound setters. `then_default()` deliberately leaves swaps unprotected (`amountOutMinimum = 0`, `amountInMaximum = U256::MAX`) until quoted-slippage support is added.
+QuoterV2 returns the estimated amount, per-pool post-swap price, crossed initialized ticks, and simulated gas usage without a signer or a transaction. Its ABI marks quote methods non-view because they internally simulate `pool.swap`; the SDK always uses `eth_call`, never `send`. Exact-output paths are encoded in reverse by `Path`.
+
+Quote results convert into the matching SwapRouter02 builders (`QuoteExactInputResult` → `ExactInputParamsBuilder`, and the single/exact-output analogues). Each result carries the original request path/amount (and single-hop price limit) plus the quoted outputs, so `from(quote)` seeds path/amount/`sqrtPriceLimitX96` and the quoted bound (`amountOutMinimum` / `amountInMaximum`). Call `apply_amount_out_slippage(BPS)` or `apply_amount_in_slippage(BPS)` to widen/tighten that bound, then set `recipient` before `build()`. Client `quote_exact_*` methods take `impl Into<...>`, so `client.quote_exact_input(&quote_params)` works without consuming the quote params.
+
+Router parameter builders provide direct amount-bound setters. `then_default()` deliberately leaves swaps unprotected (`amountOutMinimum = 0`, `amountInMaximum = U256::MAX`); derive bounds from a fresh quote and an application-defined slippage policy.
 
 ## Design rules
 

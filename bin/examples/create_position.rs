@@ -4,12 +4,13 @@ use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::U256;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
+use uniswap_v3_rs::calltypes::BPS;
 use uniswap_v3_rs::client::UniswapV3Client;
 use uniswap_v3_rs::objects::{CreatePositionParams, TokenExt, USDC, WETH};
 
 const FEE: u32 = 500;
-/// Width of the minted range in tick-spacing units on each side of the current tick.
-const RANGE_WIDTH_BPS: u16 = 100;
+/// Total width of the minted range around midprice (`50` BPS each side).
+const RANGE_WIDTH_BPS: BPS = BPS::new(100);
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -45,16 +46,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pool = client.get_pool(usdc.clone(), weth.clone(), FEE).await?;
 
     let (tick_lower, tick_upper) = pool
-        .get_both_ticks_away_from_mid(client.provider(), RANGE_WIDTH_BPS / 2)
+        .get_both_ticks_away_from_mid(client.provider(), BPS::new(RANGE_WIDTH_BPS.get() / 2))
         .await?;
 
     // token0/token1 are address-sorted; match desired amounts to that order.
     // 1 USDC + 0.001 WETH
-    let (amount0_desired, amount1_desired) = if pool.token0().address() == usdc.address() {
-        (usdc.from_amount(1), weth.from_amount(1) / U256::from(1000))
-    } else {
-        (weth.from_amount(1) / U256::from(1000), usdc.from_amount(1))
-    };
+    let (amount0_desired, amount1_desired) = (usdc.from_amount(1), weth.from_amount(1) / U256::from(1000));
 
     let create_position_params = CreatePositionParams::builder(&pool)
         .tick_lower(tick_lower)

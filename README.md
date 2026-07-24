@@ -30,6 +30,34 @@ let client = UniswapV3Client::builder()
     .await?;
 ```
 
+## Estimate a swap
+
+QuoterV2 is available through the same client and does not need a signer. It simulates the V3 pools
+with `eth_call`, so it returns an estimate rather than sending a transaction:
+
+```rust
+use alloy_primitives::U256;
+use uniswap_v3_rs::{calltypes::QuoteExactInputSingleParams, path};
+
+let path = path!(usdc, 500, weth)?;
+let quote = client
+    .quote_exact_input_single(
+        QuoteExactInputSingleParams::builder(&path)
+            .amount_in(U256::from(1_000_000))
+            .then_default()
+            .build()?,
+    )
+    .await?;
+
+println!(
+    "estimated {} WETH wei, crossed {} initialized ticks",
+    quote.amount_out, quote.initialized_ticks_crossed
+);
+```
+
+Use a fresh quote to choose `amount_out_minimum` for exact-input or `amount_in_maximum` for
+exact-output. A quote is not slippage protection by itself: the pool can move before the swap lands.
+
 ## Swap USDC for WETH
 
 ```rust
@@ -51,7 +79,7 @@ let path = path!(usdc, 500, weth)?;
 let params = ExactInputParams::builder(&path)
     .recipient(owner)
     .amount_in(U256::from(1_000_000)) // 1 USDC
-    .amount_out_minimum(U256::ZERO)   // demo only: use a quote and real slippage protection
+    .amount_out_minimum(U256::ZERO)   // demo only: derive a bound from a fresh quote
     .build()?;
 
 let response = client.swap_exact_input(params, None).await?;

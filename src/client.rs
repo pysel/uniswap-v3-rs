@@ -17,9 +17,15 @@ use crate::{
 };
 
 #[cfg(feature = "swap")]
-use crate::calltypes::{
-    ExactInputParams, ExactInputResponse, ExactInputSingleParams, ExactInputSingleResponse,
-    ExactOutputParams, ExactOutputResponse, ExactOutputSingleParams, ExactOutputSingleResponse,
+use crate::{
+    calltypes::{
+        ExactInputParams, ExactInputResponse, ExactInputSingleParams, ExactInputSingleResponse,
+        ExactOutputParams, ExactOutputResponse, ExactOutputSingleParams, ExactOutputSingleResponse,
+        QuoteExactInputParams, QuoteExactInputResult, QuoteExactInputSingleParams,
+        QuoteExactInputSingleResult, QuoteExactOutputParams, QuoteExactOutputResult,
+        QuoteExactOutputSingleParams, QuoteExactOutputSingleResult,
+    },
+    objects::QuoterV2,
 };
 
 #[cfg(feature = "positions")]
@@ -42,6 +48,8 @@ pub struct UniswapV3Client {
     wallet: Option<EthereumWallet>,
     #[cfg(feature = "swap")]
     swap_router: Option<SwapRouter>,
+    #[cfg(feature = "swap")]
+    quoter: Option<QuoterV2>,
     #[cfg(feature = "positions")]
     position_manager: Option<NonfungiblePositionManager>,
     factory: Factory,
@@ -70,6 +78,11 @@ impl UniswapV3Client {
 
     pub fn swap_router(&self) -> Option<&SwapRouter> {
         self.swap_router.as_ref()
+    }
+
+    #[cfg(feature = "swap")]
+    pub fn quoter(&self) -> Option<&QuoterV2> {
+        self.quoter.as_ref()
     }
 
     #[cfg(feature = "positions")]
@@ -251,50 +264,90 @@ impl UniswapV3Client {
     }
 
     #[cfg(feature = "swap")]
+    pub async fn quote_exact_input(
+        &self,
+        params: impl Into<QuoteExactInputParams>,
+    ) -> Result<QuoteExactInputResult, UniswapV3Error> {
+        self.require_quoter()?
+            .quote_exact_input(&self.provider, params.into())
+            .await
+    }
+
+    #[cfg(feature = "swap")]
+    pub async fn quote_exact_input_single(
+        &self,
+        params: impl Into<QuoteExactInputSingleParams>,
+    ) -> Result<QuoteExactInputSingleResult, UniswapV3Error> {
+        self.require_quoter()?
+            .quote_exact_input_single(&self.provider, params.into())
+            .await
+    }
+
+    #[cfg(feature = "swap")]
+    pub async fn quote_exact_output(
+        &self,
+        params: impl Into<QuoteExactOutputParams>,
+    ) -> Result<QuoteExactOutputResult, UniswapV3Error> {
+        self.require_quoter()?
+            .quote_exact_output(&self.provider, params.into())
+            .await
+    }
+
+    #[cfg(feature = "swap")]
+    pub async fn quote_exact_output_single(
+        &self,
+        params: impl Into<QuoteExactOutputSingleParams>,
+    ) -> Result<QuoteExactOutputSingleResult, UniswapV3Error> {
+        self.require_quoter()?
+            .quote_exact_output_single(&self.provider, params.into())
+            .await
+    }
+
+    #[cfg(feature = "swap")]
     pub async fn swap_exact_input(
         &self,
-        params: ExactInputParams,
+        params: impl Into<ExactInputParams>,
         value: Option<U256>,
     ) -> Result<ExactInputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_input(&self.provider, params, value)
+            .exact_input(&self.provider, params.into(), value)
             .await
     }
 
     #[cfg(feature = "swap")]
     pub async fn swap_exact_output(
         &self,
-        params: ExactOutputParams,
+        params: impl Into<ExactOutputParams>,
         value: Option<U256>,
     ) -> Result<ExactOutputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_output(&self.provider, params, value)
+            .exact_output(&self.provider, params.into(), value)
             .await
     }
 
     #[cfg(feature = "swap")]
     pub async fn swap_exact_input_single(
         &self,
-        params: ExactInputSingleParams,
+        params: impl Into<ExactInputSingleParams>,
         value: Option<U256>,
     ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_input_single(&self.provider, params, value)
+            .exact_input_single(&self.provider, params.into(), value)
             .await
     }
 
     #[cfg(feature = "swap")]
     pub async fn swap_exact_output_single(
         &self,
-        params: ExactOutputSingleParams,
+        params: impl Into<ExactOutputSingleParams>,
         value: Option<U256>,
     ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_output_single(&self.provider, params, value)
+            .exact_output_single(&self.provider, params.into(), value)
             .await
     }
 
@@ -303,6 +356,13 @@ impl UniswapV3Client {
         self.swap_router
             .as_ref()
             .ok_or_else(|| UniswapV3Error::BuildError("no swap router for this chain".to_string()))
+    }
+
+    #[cfg(feature = "swap")]
+    fn require_quoter(&self) -> Result<&QuoterV2, UniswapV3Error> {
+        self.quoter
+            .as_ref()
+            .ok_or_else(|| UniswapV3Error::BuildError("no QuoterV2 for this chain".to_string()))
     }
 
     #[cfg(feature = "positions")]
@@ -374,6 +434,8 @@ impl UniswapV3ClientBuilder {
             UniswapV3Error::BuildError(format!("no V3 factory for chain id {chain_id}"))
         })?;
         let swap_router = SwapRouter::from_chain(chain_id);
+        #[cfg(feature = "swap")]
+        let quoter = QuoterV2::from_chain(chain_id);
         #[cfg(feature = "positions")]
         let position_manager = NonfungiblePositionManager::from_chain(chain_id);
 
@@ -383,6 +445,8 @@ impl UniswapV3ClientBuilder {
             wallet: self.wallet,
             factory,
             swap_router,
+            #[cfg(feature = "swap")]
+            quoter,
             #[cfg(feature = "positions")]
             position_manager,
         })

@@ -8,7 +8,7 @@ use alloy::{
 use uniswap_sdk_core::prelude::{BaseCurrency, Error, Token};
 use uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick;
 
-use crate::errors::UniswapV3Error;
+use crate::{calltypes::BPS, errors::UniswapV3Error};
 
 use super::{Factory, PoolContract, TokenExt};
 
@@ -125,19 +125,19 @@ impl Pool {
         tick_upper: i32,
     ) -> Result<(I24, I24), UniswapV3Error> {
         if tick_lower >= tick_upper {
-            return Err(UniswapV3Error::Invalid("TICK_ORDER".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing("TICK_ORDER".to_string()));
         }
         if tick_lower < Self::min_tick() || tick_upper > Self::max_tick() {
-            return Err(UniswapV3Error::Invalid("TICK_BOUNDS".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing("TICK_BOUNDS".to_string()));
         }
         if tick_lower % self.tick_spacing != 0 || tick_upper % self.tick_spacing != 0 {
-            return Err(UniswapV3Error::Invalid("TICK_SPACING".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing("TICK_SPACING".to_string()));
         }
 
         let tick_lower_i24 = I24::try_from(tick_lower)
-            .map_err(|error| UniswapV3Error::Invalid(error.to_string()))?;
+            .map_err(|error| UniswapV3Error::RequiredFieldMissing(error.to_string()))?;
         let tick_upper_i24 = I24::try_from(tick_upper)
-            .map_err(|error| UniswapV3Error::Invalid(error.to_string()))?;
+            .map_err(|error| UniswapV3Error::RequiredFieldMissing(error.to_string()))?;
 
         Ok((tick_lower_i24, tick_upper_i24))
     }
@@ -198,13 +198,10 @@ impl Pool {
     pub async fn get_both_ticks_away_from_mid<P: Provider>(
         &self,
         provider: &P,
-        bps: u16,
+        bps: BPS,
     ) -> Result<(i32, i32), UniswapV3Error> {
-        let bps_pos = i32::from(bps);
-        let bps_neg = -i32::from(bps);
-
-        let lower_tick = self.get_tick_away_from_mid(provider, bps_neg).await?;
-        let upper_tick = self.get_tick_away_from_mid(provider, bps_pos).await?;
+        let lower_tick = self.get_tick_away_from_mid(provider, bps.neg()).await?;
+        let upper_tick = self.get_tick_away_from_mid(provider, bps.get().into()).await?;
         Ok((lower_tick, upper_tick))
     }
 
@@ -219,7 +216,7 @@ impl Pool {
     ) -> Result<i32, UniswapV3Error> {
         let factor = BPS_DENOMINATOR + i64::from(bps);
         if factor <= 0 {
-            return Err(UniswapV3Error::Invalid("BPS".to_string()));
+            return Err(UniswapV3Error::RequiredFieldMissing("BPS".to_string()));
         }
 
         let mid_sqrt_price = U256::from(self.sqrt_price_x96(provider).await?);
@@ -253,7 +250,7 @@ impl Pool {
         let tick = if bps < 0 && lower_price * denominator < target_price {
             lower_tick
                 .checked_add(self.tick_spacing)
-                .ok_or_else(|| UniswapV3Error::Invalid("TICK_BOUNDS".to_string()))?
+                .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("TICK_BOUNDS".to_string()))?
         } else {
             lower_tick
         };
