@@ -32,7 +32,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let path = path!(usdc, 500, weth)?;
     let owner = client.wallet().unwrap().default_signer().address();
 
-    // First: get a quote. This is optional, can use swap params directly, but quote gives better control over slippage. 
     let quote_params = QuoteExactInputParams::builder(&path)
         .amount_in(U256::from(1_000_000_000))
         .build()?;
@@ -40,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let quote = client.quote_exact_input(&quote_params).await?;
     println!("quote: {:#?}", quote.amount_out);
 
-    let slippage = BPS::from_percent(0)?;
+    let slippage = BPS::from_percent(1)?;
     let params = ExactInputParamsBuilder::from(quote)
         .recipient(owner)
         .apply_amount_out_slippage(slippage)?

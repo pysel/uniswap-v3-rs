@@ -26,7 +26,8 @@ bin/                     # local examples binary; depends on lib with features=[
     list_positions.rs    # list owner NPM positions
     create_position.rs   # mint a USDC/WETH position NFT
     close_position.rs    # close (decrease+collect+burn) by token_id
-    swap.rs              # exact-input swap
+    swap_with_quote.rs   # quote → swap with slippage
+    swap_without_quote.rs # exact-input swap with default min-out
 src/
   lib.rs                 # public modules: calltypes, client, errors, objects
   client.rs              # UniswapV3Client (+ builder)
@@ -130,7 +131,8 @@ Router parameter builders provide direct amount-bound setters. `then_default()` 
    - `cargo run -p uniswap-v3-rs-bin --example list_positions`
    - `cargo run -p uniswap-v3-rs-bin --example create_position`
    - `cargo run -p uniswap-v3-rs-bin --example close_position -- <token_id>`
-   - `cargo run -p uniswap-v3-rs-bin --example swap`
+   - `cargo run -p uniswap-v3-rs-bin --example swap_with_quote`
+   - `cargo run -p uniswap-v3-rs-bin --example swap_without_quote`
 
 ## CI
 

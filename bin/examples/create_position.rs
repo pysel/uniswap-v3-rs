@@ -2,7 +2,6 @@ use std::{env, error::Error};
 
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::U256;
-use uniswap_sdk_core::prelude::BaseCurrency;
 
 use uniswap_v3_rs::calltypes::BPS;
 use uniswap_v3_rs::client::UniswapV3Client;
