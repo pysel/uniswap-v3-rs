@@ -13,7 +13,7 @@ decoding, and deployment address lookup from scratch.
 
 ```toml
 [dependencies]
-uniswap-v3-rs = { version = "0.1", features = ["swap", "positions"] }
+uniswap-v3-rs = { version = "0.2", features = ["swap", "positions"] }
 ```
 
 Create a client with an Alloy signer:
@@ -60,10 +60,13 @@ exact-output. A quote is not slippage protection by itself: the pool can move be
 
 ## Swap USDC for WETH
 
+Quote first, turn the quote into a swap builder, then apply slippage before sending:
+
 ```rust
 use alloy_primitives::U256;
 use uniswap_v3_rs::{
-    objects::{ExactInputParams, TokenExt, USDC, WETH},
+    calltypes::{BPS, ExactInputParamsBuilder, QuoteExactInputParams},
+    objects::{TokenExt, USDC, WETH},
     path,
 };
 
@@ -76,10 +79,17 @@ let router = client.swap_router().expect("no SwapRouter02 for this chain");
 usdc.approve_unlimited(client.provider(), router.address()).await?;
 
 let path = path!(usdc, 500, weth)?;
-let params = ExactInputParams::builder(&path)
+let quote = client
+    .quote_exact_input(
+        QuoteExactInputParams::builder(&path)
+            .amount_in(U256::from(1_000_000)) // 1 USDC
+            .build()?,
+    )
+    .await?;
+
+let params = ExactInputParamsBuilder::from(quote)
     .recipient(owner)
-    .amount_in(U256::from(1_000_000)) // 1 USDC
-    .amount_out_minimum(U256::ZERO)   // demo only: derive a bound from a fresh quote
+    .apply_amount_out_slippage(BPS::from_percent(1)?)?
     .build()?;
 
 let response = client.swap_exact_input(params, None).await?;
@@ -99,6 +109,7 @@ This creates a USDC/WETH position spanning roughly 100 bps around the current po
 ```rust
 use alloy_primitives::U256;
 use uniswap_sdk_core::prelude::BaseCurrency;
+use uniswap_v3_rs::calltypes::BPS;
 use uniswap_v3_rs::objects::{CreatePositionParams, TokenExt, USDC, WETH};
 
 let chain_id = client.get_chain_id().await?;
@@ -114,7 +125,7 @@ weth.approve_unlimited(client.provider(), npm.address()).await?;
 
 let pool = client.get_pool(usdc.clone(), weth.clone(), 500).await?;
 let (tick_lower, tick_upper) = pool
-    .get_both_ticks_away_from_mid(client.provider(), 50)
+    .get_both_ticks_away_from_mid(client.provider(), BPS::new(50))
     .await?;
 
 // NPM amounts are token0/token1 ordered, not symbol ordered.
