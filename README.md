@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/pysel/uniswap-v3-rs/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pysel/uniswap-v3-rs/actions/workflows/ci.yml)
 [![Security audit](https://github.com/pysel/uniswap-v3-rs/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/pysel/uniswap-v3-rs/actions/workflows/security.yml)
+[![Crates.io](https://img.shields.io/crates/v/uniswap-v3-rs.svg)](https://crates.io/crates/uniswap-v3-rs)
 
 An opinionated, Alloy-native Uniswap V3 SDK for Rust.
 
