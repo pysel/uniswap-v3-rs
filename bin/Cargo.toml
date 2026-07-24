@@ -14,4 +14,4 @@ alloy = { version = "2.2.0", features = ["signer-local"] }
 alloy-primitives = "1.6.1"
 dotenvy = "0.15.7"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
-uniswap-sdk-core = "6.0.0"
+uniswap-sdk-core = "7.0.0"

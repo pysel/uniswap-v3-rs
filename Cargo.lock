@@ -4024,9 +4024,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "uniswap-sdk-core"
-version = "6.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d7ad381e5fdc03b1df0b763af9bf440c1b7be9b1cdcee335bc0dfc021eb697b"
+checksum = "911c9f8fe9f914468671b96f78687383056e0777cb503e91443f98967f199935"
 dependencies = [
  "alloy-primitives",
  "derive_more",
