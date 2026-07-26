@@ -34,6 +34,7 @@ impl BinancePriceSource {
 }
 
 impl PriceSource for BinancePriceSource {
+    #[allow(clippy::manual_async_fn)]
     fn price(
         &self,
         token: Token,
