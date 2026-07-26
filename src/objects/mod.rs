@@ -27,13 +27,13 @@ pub use abi_definitions::INonfungiblePositionManager::{
     CollectParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
     MintParams as CreatePositionParams,
 };
-pub use abi_definitions::IV3SwapRouter::{
-    ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
-};
 #[cfg(feature = "swap")]
 pub(crate) use abi_definitions::IQuoterV2::{
     QuoteExactInputSingleParams as QuoteExactInputSingleAbiParams,
     QuoteExactOutputSingleParams as QuoteExactOutputSingleAbiParams,
+};
+pub use abi_definitions::IV3SwapRouter::{
+    ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams,
 };
 
 pub use factory::Factory;

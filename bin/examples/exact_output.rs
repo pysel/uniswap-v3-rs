@@ -25,7 +25,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let chain_id = client.get_chain_id().await?;
     let owner = client.wallet().unwrap().default_signer().address();
-    let router = client.swap_router().expect("no SwapRouter02 for this chain");
+    let router = client
+        .swap_router()
+        .expect("no SwapRouter02 for this chain");
 
     let usdc = USDC::on_chain(chain_id).expect("USDC not deployed on chain");
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
@@ -54,10 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build()?;
     let single_response = client.swap_exact_output_single(single_params, None).await?;
     println!("single-hop swap tx: {}", single_response.tx_hash);
-    println!(
-        "single-hop amount_in: {}",
-        single_response.amount_in.await?
-    );
+    println!("single-hop amount_in: {}", single_response.amount_in.await?);
 
     // Multi-hop exact-output: pay USDC via WETH, receive exactly 1 USDT.
     let multi_path = path!(usdc, 500, weth, 500, usdt.clone())?;

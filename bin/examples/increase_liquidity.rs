@@ -14,9 +14,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let token_id = env::args()
         .nth(1)
-        .ok_or(
-            "usage: cargo run -p uniswap-v3-rs-bin --example increase_liquidity -- <token_id>",
-        )?
+        .ok_or("usage: cargo run -p uniswap-v3-rs-bin --example increase_liquidity -- <token_id>")?
         .parse::<U256>()?;
 
     let rpc_url = env::var("LOCAL_RPC_URL")?;
