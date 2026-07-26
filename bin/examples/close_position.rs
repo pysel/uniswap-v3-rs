@@ -1,4 +1,4 @@
-use std::{env, error::Error, time::SystemTime};
+use std::{env, error::Error};
 
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::U256;
@@ -36,19 +36,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         position.fee()
     );
 
-    let deadline = U256::from(
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_secs()
-            + 600,
-    );
+    let params = ClosePositionParams::builder()
+        .recipient(owner)
+        .then_default()
+        .build()?;
 
-    let response = client
-        .close_position(
-            &position,
-            ClosePositionParams::new(owner, U256::ZERO, U256::ZERO, deadline),
-        )
-        .await?;
+    let response = client.close_position(&position, params).await?;
     println!("close tx: {}", response.tx_hash);
 
     let amounts = response.amounts.await?;

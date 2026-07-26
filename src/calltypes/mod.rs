@@ -16,11 +16,13 @@ pub(crate) use slippage::{apply_negative_slippage, apply_positive_slippage};
 
 #[cfg(feature = "positions")]
 pub use npm::{
-    BurnPositionResponse, ClosePositionParams, ClosePositionResponse, ClosePositionResult,
-    CollectParams, CollectPositionResponse, CollectPositionResult, CreateAndInitializePoolResponse,
-    CreatePositionParams, CreatePositionResponse, CreatePositionResult, DecreaseLiquidityParams,
-    DecreaseLiquidityResponse, DecreaseLiquidityResult, IncreaseLiquidityParams,
-    IncreaseLiquidityResponse, IncreaseLiquidityResult,
+    BurnPositionResponse, ClosePositionParams, ClosePositionParamsBuilder, ClosePositionResponse,
+    ClosePositionResult, CollectParams, CollectParamsBuilder, CollectPositionResponse,
+    CollectPositionResult, CreateAndInitializePoolResponse, CreatePositionParams,
+    CreatePositionParamsBuilder, CreatePositionResponse, CreatePositionResult,
+    DecreaseLiquidityParams, DecreaseLiquidityParamsBuilder, DecreaseLiquidityResponse,
+    DecreaseLiquidityResult, IncreaseLiquidityParams, IncreaseLiquidityParamsBuilder,
+    IncreaseLiquidityResponse, IncreaseLiquidityResult, default_deadline,
 };
 pub use path::Path;
 #[cfg(feature = "swap")]

@@ -25,9 +25,11 @@ bin/                     # local examples binary; depends on lib with features=[
   examples/
     list_positions.rs    # list owner NPM positions
     create_position.rs   # mint a USDC/WETH position NFT
+    increase_liquidity.rs # add liquidity to an existing position NFT
     close_position.rs    # close (decrease+collect+burn) by token_id
     swap_with_quote.rs   # quote → swap with slippage
     swap_without_quote.rs # exact-input swap with default min-out
+    exact_output.rs      # exact-output single-hop + multi-hop with quote
 src/
   lib.rs                 # public modules: calltypes, client, errors, objects
   client.rs              # UniswapV3Client (+ builder)
@@ -111,6 +113,8 @@ Quote results convert into the matching SwapRouter02 builders (`QuoteExactInputR
 
 Router parameter builders provide direct amount-bound setters. `then_default()` deliberately leaves swaps unprotected (`amountOutMinimum = 0`, `amountInMaximum = U256::MAX`); derive bounds from a fresh quote and an application-defined slippage policy.
 
+NPM calltypes follow the same builder pattern (`CreatePositionParams`, `IncreaseLiquidityParams`, `DecreaseLiquidityParams`, `CollectParams`, `ClosePositionParams`). Seed from a `Pool` or `Position` where applicable, set required amounts/ticks/recipient, then `then_default()` for permissive mins (`0`), collect-all maxes (`u128::MAX`), and a ~30-day deadline.
+
 ## Design rules
 
 - Keep object fields **minimal and private**; prefer getters and derived methods (`address()`, `num_ticks()`, `max_liquidity_per_tick()`).
@@ -130,9 +134,11 @@ Router parameter builders provide direct amount-bound setters. `then_default()` 
 3. Run focused examples (each loads `.env` with `LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`):
    - `cargo run -p uniswap-v3-rs-bin --example list_positions`
    - `cargo run -p uniswap-v3-rs-bin --example create_position`
+   - `cargo run -p uniswap-v3-rs-bin --example increase_liquidity -- <token_id>`
    - `cargo run -p uniswap-v3-rs-bin --example close_position -- <token_id>`
    - `cargo run -p uniswap-v3-rs-bin --example swap_with_quote`
    - `cargo run -p uniswap-v3-rs-bin --example swap_without_quote`
+   - `cargo run -p uniswap-v3-rs-bin --example exact_output`
 
 ## CI
 

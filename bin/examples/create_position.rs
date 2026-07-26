@@ -72,7 +72,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         result.liquidity, result.amount0, result.amount1
     );
     println!(
-        "close with: cargo run -p uniswap-v3-rs-bin --example close_position -- {}",
+        "increase with: cargo run -p uniswap-v3-rs-bin --example increase_liquidity -- {}",
+        result.token_id
+    );
+    println!(
+        "close with:    cargo run -p uniswap-v3-rs-bin --example close_position -- {}",
         result.token_id
     );
 

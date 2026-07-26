@@ -1,11 +1,11 @@
-use std::time::SystemTime;
-
 use alloy::primitives::{Address, TxHash, U256, aliases::U24};
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use crate::calltypes::TransactionFuture;
 use crate::errors::UniswapV3Error;
 use crate::objects::Pool;
+
+use super::default_deadline;
 
 pub use crate::objects::CreatePositionParams;
 
@@ -22,7 +22,6 @@ pub struct CreatePositionResponse {
     pub position: TransactionFuture<CreatePositionResult>,
 }
 
-const DEFAULT_DEADLINE_FROM_NOW_SECS: u64 = 60 * 60 * 24 * 30; // 30 days from now
 const DEFAULT_AMOUNT0_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount
 const DEFAULT_AMOUNT1_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount1
 
@@ -136,11 +135,8 @@ impl CreatePositionParamsBuilder {
             self.amount1_min = Some(amount1_desired * amount1_min_bps_of_desired / bps_denominator);
         }
 
-        if self.deadline.is_none()
-            && let Ok(now) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-        {
-            let deadline = now.as_secs() + DEFAULT_DEADLINE_FROM_NOW_SECS;
-            self.deadline = Some(U256::from(deadline));
+        if self.deadline.is_none() {
+            self.deadline = default_deadline();
         }
 
         self
