@@ -25,14 +25,23 @@ default-members = ["bin"]
 resolver = "2"
 
 [features]
-default = ["swap", "positions"]
-swap = []
-positions = []
+default = ["strategies"]
+strategies = [
+    "dep:futures-util",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+]
 
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }
 alloy-primitives = "1.6.1"
 thiserror = "2.0.19"
-tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+futures-util = { version = "0.3", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync"], optional = true }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 uniswap-sdk-core = "7.0.0"
 uniswap_v3_math = "0.6.2"

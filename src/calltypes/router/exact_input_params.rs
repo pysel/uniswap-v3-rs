@@ -6,7 +6,6 @@ use crate::{
     errors::UniswapV3Error,
 };
 
-#[cfg(feature = "swap")]
 use crate::calltypes::{BPS, QuoteExactInputResult, apply_negative_slippage};
 
 pub use crate::objects::ExactInputParams;
@@ -49,7 +48,6 @@ pub struct ExactInputParamsBuilder {
     amount_out_minimum: Option<U256>,
 }
 
-#[cfg(feature = "swap")]
 impl From<QuoteExactInputResult> for ExactInputParamsBuilder {
     fn from(result: QuoteExactInputResult) -> Self {
         Self {
@@ -80,7 +78,6 @@ impl ExactInputParamsBuilder {
         self
     }
 
-    #[cfg(feature = "swap")]
     pub fn apply_amount_out_slippage(mut self, bps: BPS) -> Result<Self, UniswapV3Error> {
         let amount_out_minimum = self.amount_out_minimum.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("AMOUNT_OUT_MINIMUM".to_string())

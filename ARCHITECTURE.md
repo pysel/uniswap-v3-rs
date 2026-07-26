@@ -6,20 +6,21 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 - **Alloy** — HTTP provider, signer/wallet, contract bindings (`sol!`)
 - **`uniswap-sdk-core`** — offline primitives (`Token`, amounts, addresses); no RPC
-- **Tokio** — async runtime for the binary / RPC calls
+- **Tokio** — async runtime; the optional strategy module uses channels and background tasks
 
 ## Features
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `swap` | no | Enables SwapRouter02 execution and QuoterV2 estimate helpers. Not default for lib dependents. Enabled by `bin/` for local examples. |
-| `positions` | no | Enables NPM position reads and lifecycle helpers (`create`, `increase`, `decrease`, `collect`, `close`). Enabled by `bin/` for local examples. |
+| `strategies` | no | Enables experimental strategy interfaces and Binance Spot WebSocket price streams. |
+
+SwapRouter02, QuoterV2, and NPM APIs are always compiled.
 
 ## Layout
 
 ```text
 Cargo.toml               # lib package + workspace (members: ., bin)
-bin/                     # local examples binary; depends on lib with features=["swap", "positions"]
+bin/                     # local examples binary
   Cargo.toml
   src/main.rs            # prints example commands
   examples/
@@ -31,7 +32,7 @@ bin/                     # local examples binary; depends on lib with features=[
     swap_without_quote.rs # exact-input swap with default min-out
     exact_output.rs      # exact-output single-hop + multi-hop with quote
 src/
-  lib.rs                 # public modules: calltypes, client, errors, objects
+  lib.rs                 # public modules: calltypes, client, errors, objects, strategies (feature-gated)
   client.rs              # UniswapV3Client (+ builder)
   errors.rs              # UniswapV3Error
   calltypes/
@@ -73,6 +74,11 @@ src/
       usdc.rs            # USDC::on_chain from Uniswap default-token-list
       ...                # usdt, wbtc, uni, usde, usdg, usdt0, link, dai, cbbtc, bnb
     abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / QuoterV2 / NPM / Erc20
+  strategies/            # optional strategy abstractions
+    mod.rs                # Strategy trait + re-exports
+    errors.rs             # StrategyError
+    constant_window.rs    # ConstantWindowStrategy + builder
+    price_source/         # PriceSource, BinancePriceSource, PriceSourceError
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
   anvil.sh               # mainnet fork via Anvil
@@ -94,6 +100,7 @@ scripts/
 | `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
 | `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). |
 | `USDC` / `USDT` / … | unit structs | Offline `on_chain(chain_id)` registries sourced from Uniswap default-token-list for mainnet/arbitrum/base/avalanche/optimism/polygon/tempo. |
+| `BinancePriceSource` | no fields | Optional Spot `BASEUSDT@bookTicker` source; emits bid/ask midpoint prices through a Tokio unbounded receiver. |
 
 ### Construction paths
 
@@ -115,6 +122,16 @@ Router parameter builders provide direct amount-bound setters. `then_default()` 
 
 NPM calltypes follow the same builder pattern (`CreatePositionParams`, `IncreaseLiquidityParams`, `DecreaseLiquidityParams`, `CollectParams`, `ClosePositionParams`). Seed from a `Pool` or `Position` where applicable, set required amounts/ticks/recipient, then `then_default()` for permissive mins (`0`), collect-all maxes (`u128::MAX`), and a ~30-day deadline.
 
+`strategies` is deliberately an interface layer rather than a strategy runner. `Strategy::run`
+takes `&mut self`, a client, and the pool `Address` the strategy should trade, spawns a Tokio
+task, stores the `JoinHandle`, and returns `Ok(())` on successful start. `Strategy::abort` stops
+that task. `PriceSource::price` produces an unbounded receiver, and
+`ConstantWindowStrategy::run` remains intentionally unimplemented.
+`BinancePriceSource` maps
+`WETH` to `ETH` and `WBTC` to `BTC`, then subscribes to Binance Spot `BASEUSDT@bookTicker` and
+emits the best bid/ask midpoint. It closes the receiver when the socket, payload parsing, or
+consumer terminates.
+
 ## Design rules
 
 - Keep object fields **minimal and private**; prefer getters and derived methods (`address()`, `num_ticks()`, `max_liquidity_per_tick()`).
@@ -125,7 +142,7 @@ NPM calltypes follow the same builder pattern (`CreatePositionParams`, `Increase
 
 ## Errors
 
-`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`.
+`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and currently covers already-running starts plus wrapped `PriceSourceError`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures.
 
 ## Local testing
 

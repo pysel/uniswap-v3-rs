@@ -18,14 +18,12 @@ sol!(
     "artifacts/SwapRouter02.json"
 );
 
-#[cfg(feature = "swap")]
 sol!(
     #[sol(rpc)]
     QuoterV2,
     "artifacts/QuoterV2.json"
 );
 
-#[cfg(feature = "positions")]
 sol!(
     #[sol(rpc)]
     NonfungiblePositionManager,

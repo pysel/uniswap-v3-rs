@@ -5,10 +5,7 @@ use alloy::{
 };
 use uniswap_sdk_core::entities::Token;
 
-#[cfg(any(feature = "swap", feature = "positions"))]
 use alloy::primitives::U256;
-
-#[cfg(feature = "positions")]
 use alloy::primitives::aliases::U160;
 
 use crate::{
@@ -16,7 +13,6 @@ use crate::{
     objects::{Factory, Pool, SwapRouter},
 };
 
-#[cfg(feature = "swap")]
 use crate::{
     calltypes::{
         ExactInputParams, ExactInputResponse, ExactInputSingleParams, ExactInputSingleResponse,
@@ -28,7 +24,6 @@ use crate::{
     objects::QuoterV2,
 };
 
-#[cfg(feature = "positions")]
 use crate::{
     calltypes::{
         BurnPositionResponse, ClosePositionParams, ClosePositionResponse, CollectPositionResponse,
@@ -46,11 +41,8 @@ pub struct UniswapV3Client {
     rpc_url: String,
     provider: DynProvider,
     wallet: Option<EthereumWallet>,
-    #[cfg(feature = "swap")]
     swap_router: Option<SwapRouter>,
-    #[cfg(feature = "swap")]
     quoter: Option<QuoterV2>,
-    #[cfg(feature = "positions")]
     position_manager: Option<NonfungiblePositionManager>,
     factory: Factory,
 }
@@ -80,12 +72,10 @@ impl UniswapV3Client {
         self.swap_router.as_ref()
     }
 
-    #[cfg(feature = "swap")]
     pub fn quoter(&self) -> Option<&QuoterV2> {
         self.quoter.as_ref()
     }
 
-    #[cfg(feature = "positions")]
     pub fn position_manager(&self) -> Option<&NonfungiblePositionManager> {
         self.position_manager.as_ref()
     }
@@ -116,21 +106,18 @@ impl UniswapV3Client {
         self.factory.pool(token0, token1, fee, &self.provider).await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn get_position(&self, token_id: U256) -> Result<Position, UniswapV3Error> {
         self.require_position_manager()?
             .position(&self.provider, token_id)
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn get_position_count(&self, owner: Address) -> Result<U256, UniswapV3Error> {
         self.require_position_manager()?
             .balance_of(&self.provider, owner)
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn get_position_id(
         &self,
         owner: Address,
@@ -141,7 +128,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn get_positions(&self, owner: Address) -> Result<Vec<Position>, UniswapV3Error> {
         let count = self.get_position_count(owner).await?;
         let count = usize::try_from(count).map_err(|error| {
@@ -157,7 +143,6 @@ impl UniswapV3Client {
         Ok(positions)
     }
 
-    #[cfg(feature = "positions")]
     pub async fn create_position(
         &self,
         params: CreatePositionParams,
@@ -168,7 +153,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn increase_position_liquidity(
         &self,
         params: IncreaseLiquidityParams,
@@ -179,7 +163,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn decrease_position_liquidity(
         &self,
         params: DecreaseLiquidityParams,
@@ -189,7 +172,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn collect_position(
         &self,
         params: CollectParams,
@@ -199,7 +181,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn burn_position(
         &self,
         position: &Position,
@@ -210,7 +191,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn create_and_initialize_pool_if_necessary(
         &self,
         token0: Address,
@@ -231,7 +211,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "positions")]
     pub async fn close_position(
         &self,
         position: &Position,
@@ -263,7 +242,6 @@ impl UniswapV3Client {
         manager.close(&self.provider, data).await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn quote_exact_input(
         &self,
         params: impl Into<QuoteExactInputParams>,
@@ -273,7 +251,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn quote_exact_input_single(
         &self,
         params: impl Into<QuoteExactInputSingleParams>,
@@ -283,7 +260,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn quote_exact_output(
         &self,
         params: impl Into<QuoteExactOutputParams>,
@@ -293,7 +269,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn quote_exact_output_single(
         &self,
         params: impl Into<QuoteExactOutputSingleParams>,
@@ -303,7 +278,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn swap_exact_input(
         &self,
         params: impl Into<ExactInputParams>,
@@ -315,7 +289,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn swap_exact_output(
         &self,
         params: impl Into<ExactOutputParams>,
@@ -327,7 +300,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn swap_exact_input_single(
         &self,
         params: impl Into<ExactInputSingleParams>,
@@ -339,7 +311,6 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     pub async fn swap_exact_output_single(
         &self,
         params: impl Into<ExactOutputSingleParams>,
@@ -351,28 +322,24 @@ impl UniswapV3Client {
             .await
     }
 
-    #[cfg(feature = "swap")]
     fn require_swap_router(&self) -> Result<&SwapRouter, UniswapV3Error> {
         self.swap_router
             .as_ref()
             .ok_or_else(|| UniswapV3Error::BuildError("no swap router for this chain".to_string()))
     }
 
-    #[cfg(feature = "swap")]
     fn require_quoter(&self) -> Result<&QuoterV2, UniswapV3Error> {
         self.quoter
             .as_ref()
             .ok_or_else(|| UniswapV3Error::BuildError("no QuoterV2 for this chain".to_string()))
     }
 
-    #[cfg(feature = "positions")]
     fn require_position_manager(&self) -> Result<&NonfungiblePositionManager, UniswapV3Error> {
         self.position_manager.as_ref().ok_or_else(|| {
             UniswapV3Error::BuildError("no nonfungible position manager for this chain".to_string())
         })
     }
 
-    #[cfg(feature = "positions")]
     fn ensure_position_manager(&self, position: &Position) -> Result<(), UniswapV3Error> {
         let manager = self.require_position_manager()?;
         if position.manager() != *manager {
@@ -434,9 +401,7 @@ impl UniswapV3ClientBuilder {
             UniswapV3Error::BuildError(format!("no V3 factory for chain id {chain_id}"))
         })?;
         let swap_router = SwapRouter::from_chain(chain_id);
-        #[cfg(feature = "swap")]
         let quoter = QuoterV2::from_chain(chain_id);
-        #[cfg(feature = "positions")]
         let position_manager = NonfungiblePositionManager::from_chain(chain_id);
 
         Ok(UniswapV3Client {
@@ -445,9 +410,7 @@ impl UniswapV3ClientBuilder {
             wallet: self.wallet,
             factory,
             swap_router,
-            #[cfg(feature = "swap")]
             quoter,
-            #[cfg(feature = "positions")]
             position_manager,
         })
     }

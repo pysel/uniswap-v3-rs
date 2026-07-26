@@ -6,7 +6,6 @@ use crate::{
     errors::UniswapV3Error,
 };
 
-#[cfg(feature = "swap")]
 use crate::calltypes::{BPS, QuoteExactOutputResult, apply_positive_slippage};
 
 pub use crate::objects::ExactOutputParams;
@@ -49,7 +48,6 @@ pub struct ExactOutputParamsBuilder {
     amount_in_maximum: Option<U256>,
 }
 
-#[cfg(feature = "swap")]
 impl From<QuoteExactOutputResult> for ExactOutputParamsBuilder {
     fn from(result: QuoteExactOutputResult) -> Self {
         Self {
@@ -80,7 +78,6 @@ impl ExactOutputParamsBuilder {
         self
     }
 
-    #[cfg(feature = "swap")]
     pub fn apply_amount_in_slippage(mut self, bps: BPS) -> Result<Self, UniswapV3Error> {
         let amount_in_maximum = self
             .amount_in_maximum

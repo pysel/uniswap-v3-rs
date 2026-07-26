@@ -14,7 +14,15 @@ decoding, and deployment address lookup from scratch.
 
 ```toml
 [dependencies]
-uniswap-v3-rs = { version = "0.2", features = ["swap", "positions"] }
+uniswap-v3-rs = "0.2"
+```
+
+Swap, quote, and position APIs are always available. Opt into the experimental strategy APIs and
+their WebSocket dependencies only when needed:
+
+```toml
+[dependencies]
+uniswap-v3-rs = { version = "0.2", features = ["strategies"] }
 ```
 
 Create a client with an Alloy signer:
@@ -159,6 +167,14 @@ Position NFTs keep immutable metadata locally—tokens, fee tier, and tick bound
 such as liquidity, ownership, and owed tokens are fetched from chain when requested. This split has
 worked out nicely in practice: fewer pointless RPC calls, without handing callers stale position
 state.
+
+## Strategies
+
+The optional `strategies` feature provides shared strategy and price-source interfaces.
+`BinancePriceSource` opens a Spot `BASEUSDT@bookTicker` stream and sends the best bid/ask midpoint
+through a Tokio unbounded receiver. Build a `ConstantWindowStrategy` with BPS setters and `.with_binance_price_source()`.
+`Strategy::run` starts the background task and returns `Ok(())`; call `Strategy::abort` to stop
+it. The constant-window body is intentionally unimplemented.
 
 There are more focused runnable examples in [`bin/examples`](bin/examples), including listing and
 closing positions. The SDK is still young and there are definitely rough edges, but the core swap
