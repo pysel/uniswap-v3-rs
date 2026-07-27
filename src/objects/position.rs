@@ -61,6 +61,27 @@ impl Position {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) const fn new_unchecked(
+        manager: NonfungiblePositionManager,
+        token_id: U256,
+        token0: Address,
+        token1: Address,
+        fee: u32,
+        tick_lower: i32,
+        tick_upper: i32,
+    ) -> Self {
+        Self {
+            manager,
+            token_id,
+            token0,
+            token1,
+            fee,
+            tick_lower,
+            tick_upper,
+        }
+    }
+
     #[must_use]
     pub const fn manager(&self) -> NonfungiblePositionManager {
         self.manager

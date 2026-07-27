@@ -18,6 +18,19 @@ pub trait TokenExt {
         provider: &P,
     ) -> impl Future<Output = Result<Token, UniswapV3Error>>;
 
+    fn balance_of<P: Provider>(
+        &self,
+        provider: &P,
+        owner: Address,
+    ) -> impl Future<Output = Result<U256, UniswapV3Error>>;
+
+    fn allowance<P: Provider>(
+        &self,
+        provider: &P,
+        owner: Address,
+        spender: Address,
+    ) -> impl Future<Output = Result<U256, UniswapV3Error>>;
+
     fn approve<P: Provider>(
         &self,
         provider: &P,
@@ -52,6 +65,31 @@ impl TokenExt for Token {
         let name = contract.name().call().await.ok();
 
         Ok(Token::new(chain_id, address, decimals, symbol, name, 0, 0))
+    }
+
+    async fn balance_of<P: Provider>(
+        &self,
+        provider: &P,
+        owner: Address,
+    ) -> Result<U256, UniswapV3Error> {
+        Erc20Contract::new(self.address(), provider)
+            .balanceOf(owner)
+            .call()
+            .await
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
+    }
+
+    async fn allowance<P: Provider>(
+        &self,
+        provider: &P,
+        owner: Address,
+        spender: Address,
+    ) -> Result<U256, UniswapV3Error> {
+        Erc20Contract::new(self.address(), provider)
+            .allowance(owner, spender)
+            .call()
+            .await
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))
     }
 
     async fn approve<P: Provider>(

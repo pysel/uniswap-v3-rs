@@ -16,6 +16,7 @@ use super::{Factory, PoolContract, TokenExt};
 const MIN_TICK: i32 = -887_272;
 const MAX_TICK: i32 = 887_272;
 const BPS_DENOMINATOR: i64 = 10_000;
+const HUMAN_PRICE_PRECISION: u128 = 1_000_000_000_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pool {
@@ -171,6 +172,83 @@ impl Pool {
     #[must_use]
     pub const fn tick_spacing(&self) -> i32 {
         self.tick_spacing
+    }
+
+    /// Converts a human token1-per-token0 price to the nearest usable tick for this pool.
+    pub fn human_price_to_tick(&self, human_price: f64) -> Result<i32, UniswapV3Error> {
+        if !human_price.is_finite() || human_price <= 0.0 {
+            return Err(UniswapV3Error::Math(
+                "human price must be finite and positive".to_string(),
+            ));
+        }
+
+        let scaled = (human_price * HUMAN_PRICE_PRECISION as f64).round();
+        if !scaled.is_finite() || scaled <= 0.0 || scaled > u128::MAX as f64 {
+            return Err(UniswapV3Error::Math(
+                "human price is outside the supported range".to_string(),
+            ));
+        }
+
+        let token0_scale = U512::from(10)
+            .checked_pow(U512::from(self.token0.decimals))
+            .ok_or_else(|| UniswapV3Error::Math("token0 decimal scale overflowed".to_string()))?;
+        let token1_scale = U512::from(10)
+            .checked_pow(U512::from(self.token1.decimals))
+            .ok_or_else(|| UniswapV3Error::Math("token1 decimal scale overflowed".to_string()))?;
+        let target_numerator = U512::from(scaled as u128)
+            .checked_mul(token1_scale)
+            .ok_or_else(|| UniswapV3Error::Math("price numerator overflowed".to_string()))?;
+        let target_denominator = U512::from(HUMAN_PRICE_PRECISION)
+            .checked_mul(token0_scale)
+            .ok_or_else(|| UniswapV3Error::Math("price denominator overflowed".to_string()))?;
+        let q192 = U512::from(1_u8) << 192;
+        let target = target_numerator
+            .checked_mul(q192)
+            .ok_or_else(|| UniswapV3Error::Math("scaled price overflowed".to_string()))?;
+
+        // Find the greatest tick whose token1/token0 price does not exceed the target.
+        let mut lower = MIN_TICK;
+        let mut upper = MAX_TICK;
+        while lower < upper {
+            let middle = lower + (upper - lower + 1) / 2;
+            let sqrt_price = get_sqrt_ratio_at_tick(middle)?;
+            let tick_price = U512::from(sqrt_price)
+                .checked_mul(U512::from(sqrt_price))
+                .and_then(|price| price.checked_mul(target_denominator))
+                .ok_or_else(|| UniswapV3Error::Math("tick price overflowed".to_string()))?;
+
+            if tick_price <= target {
+                lower = middle;
+            } else {
+                upper = middle - 1;
+            }
+        }
+
+        let quotient = lower.div_euclid(self.tick_spacing);
+        let remainder = lower.rem_euclid(self.tick_spacing);
+        let rounded_index =
+            quotient + (remainder + self.tick_spacing / 2) / self.tick_spacing;
+        let tick = rounded_index * self.tick_spacing;
+
+        Ok(tick.clamp(
+            self.ceil_to_spacing(Self::min_tick()),
+            self.floor_to_spacing(Self::max_tick()),
+        ))
+    }
+
+    /// Rounds a tick down to this pool's tick spacing.
+    pub fn floor_to_spacing(&self, tick: i32) -> i32 {
+        tick - tick.rem_euclid(self.tick_spacing)
+    }
+
+    /// Rounds a tick up to this pool's tick spacing.
+    pub fn ceil_to_spacing(&self, tick: i32) -> i32 {
+        let remainder = tick.rem_euclid(self.tick_spacing);
+        if remainder == 0 {
+            tick
+        } else {
+            tick + (self.tick_spacing - remainder)
+        }
     }
 
     #[must_use]

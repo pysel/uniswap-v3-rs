@@ -2,7 +2,7 @@ use std::future::Future;
 
 use futures_util::StreamExt;
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
 use uniswap_sdk_core::prelude::{BaseCurrencyCore, Token};
 
@@ -10,7 +10,7 @@ use crate::strategies::price_source::{PriceSource, PriceSourceError};
 
 const BINANCE_STREAM_URL: &str = "wss://stream.binance.com:9443/ws";
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct BinancePriceSource;
 
 impl BinancePriceSource {
@@ -31,6 +31,12 @@ impl BinancePriceSource {
 
         Ok(format!("{base}usdt"))
     }
+
+    fn midpoint(book_ticker: &BookTicker) -> Option<f64> {
+        let bid = book_ticker.bid.parse::<f64>().ok()?;
+        let ask = book_ticker.ask.parse::<f64>().ok()?;
+        Some((bid + ask) / 2.0)
+    }
 }
 
 impl PriceSource for BinancePriceSource {
@@ -38,18 +44,36 @@ impl PriceSource for BinancePriceSource {
     fn price(
         &self,
         token: Token,
-    ) -> impl Future<Output = Result<mpsc::UnboundedReceiver<f64>, PriceSourceError>> + Send {
+    ) -> impl Future<Output = Result<watch::Receiver<f64>, PriceSourceError>> + Send {
         async move {
             let symbol = Self::symbol(&token)?;
             let url = format!("{BINANCE_STREAM_URL}/{symbol}@bookTicker");
             let (stream, _) = connect_async(url)
                 .await
                 .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
-            let (sender, receiver) = mpsc::unbounded_channel();
+            let mut stream = stream;
+
+            let initial = loop {
+                let message = stream.next().await.ok_or_else(|| {
+                    PriceSourceError::SubscriptionError("binance stream closed before first price".into())
+                })?;
+                let message = message.map_err(|error| {
+                    PriceSourceError::SubscriptionError(error.to_string())
+                })?;
+                let Ok(text) = message.into_text() else {
+                    continue;
+                };
+                let Ok(book_ticker) = serde_json::from_str::<BookTicker>(&text) else {
+                    continue;
+                };
+                if let Some(mid) = Self::midpoint(&book_ticker) {
+                    break mid;
+                }
+            };
+
+            let (tx, rx) = watch::channel(initial);
 
             tokio::spawn(async move {
-                let mut stream = stream;
-
                 while let Some(message) = stream.next().await {
                     let Ok(message) = message else {
                         break;
@@ -60,20 +84,17 @@ impl PriceSource for BinancePriceSource {
                     let Ok(book_ticker) = serde_json::from_str::<BookTicker>(&text) else {
                         break;
                     };
-                    let (Ok(bid), Ok(ask)) = (
-                        book_ticker.bid.parse::<f64>(),
-                        book_ticker.ask.parse::<f64>(),
-                    ) else {
+                    let Some(mid) = Self::midpoint(&book_ticker) else {
                         break;
                     };
 
-                    if sender.send((bid + ask) / 2.0).is_err() {
+                    if tx.send(mid).is_err() {
                         break;
                     }
                 }
             });
 
-            Ok(receiver)
+            Ok(rx)
         }
     }
 }

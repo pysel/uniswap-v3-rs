@@ -17,12 +17,12 @@ decoding, and deployment address lookup from scratch.
 uniswap-v3-rs = "0.2"
 ```
 
-Swap, quote, and position APIs are always available. Opt into the experimental strategy APIs and
-their WebSocket dependencies only when needed:
+Swap, quote, position, and strategy APIs are available by default. Disable strategies and their
+WebSocket dependencies with `default-features = false` when you only need the core client:
 
 ```toml
 [dependencies]
-uniswap-v3-rs = { version = "0.2", features = ["strategies"] }
+uniswap-v3-rs = { version = "0.2", default-features = false }
 ```
 
 Create a client with an Alloy signer:
@@ -170,11 +170,25 @@ state.
 
 ## Strategies
 
-The optional `strategies` feature provides shared strategy and price-source interfaces.
-`BinancePriceSource` opens a Spot `BASEUSDT@bookTicker` stream and sends the best bid/ask midpoint
-through a Tokio unbounded receiver. Build a `ConstantWindowStrategy` with BPS setters and `.with_binance_price_source()`.
-`Strategy::run` starts the background task and returns `Ok(())`; call `Strategy::abort` to stop
-it. The constant-window body is intentionally unimplemented.
+The `strategies` feature (on by default) provides shared strategy and price-source interfaces.
+`BinancePriceSource` opens a Spot `BASEUSDT@bookTicker` stream and keeps the latest bid/ask
+midpoint in a Tokio `watch` channel. `StablePriceSource` exposes a constant `1.0` USD price the
+same way for supported stables. Build a `ConstantWindowStrategy` with BPS window/rebalance
+setters, max token amounts, and `.price_source_token0(...)` / `.price_source_token1(...)`
+(for example Binance + Stable).
+
+`ConstantWindowStrategy` maintains a concentrated LP position centered on the external
+token0/token1 mid from `price()` (`price0_usd / price1_usd`). On `Strategy::run` it:
+
+1. Hydrates the pool and price feeds
+2. Closes every owner NFT that matches the exact pool key `(token0, token1, fee)`
+3. Validates nonzero maxima, rebalance thresholds strictly inside window lengths, positive
+   prices, wallet balances ≥ both maxima, and existing NPM allowances ≥ both maxima (it never
+   changes approvals)
+4. Loops: open a window when none is tracked; when one is tracked, hold while mid stays within
+   inclusive rebalance thresholds of the open price, otherwise close and reopen on the next mid
+
+`Strategy::abort` stops the monitoring task immediately and does **not** close any live NFT.
 
 There are more focused runnable examples in [`bin/examples`](bin/examples), including listing and
 closing positions. The SDK is still young and there are definitely rough edges, but the core swap

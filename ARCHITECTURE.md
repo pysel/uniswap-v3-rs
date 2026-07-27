@@ -12,7 +12,7 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `strategies` | no | Enables experimental strategy interfaces and Binance Spot WebSocket price streams. |
+| `strategies` | yes | Enables strategy interfaces and Binance/Stable price streams. |
 
 SwapRouter02, QuoterV2, and NPM APIs are always compiled.
 
@@ -22,7 +22,7 @@ SwapRouter02, QuoterV2, and NPM APIs are always compiled.
 Cargo.toml               # lib package + workspace (members: ., bin)
 bin/                     # local examples binary
   Cargo.toml
-  src/main.rs            # prints example commands
+  src/main.rs            # runs ConstantWindowStrategy on local Anvil USDC/WETH
   examples/
     list_positions.rs    # list owner NPM positions
     create_position.rs   # mint a USDC/WETH position NFT
@@ -70,15 +70,19 @@ src/
       result.rs          # receipt-backed swap amount futures
     token/
       mod.rs             # re-exports TokenExt + USDC/USDT/WBTC/... registries
-      token.rs           # TokenExt: RPC metadata loading and ERC-20 approvals
+      token_extension.rs # TokenExt: RPC metadata, balance/allowance reads, approvals
       usdc.rs            # USDC::on_chain from Uniswap default-token-list
       ...                # usdt, wbtc, uni, usde, usdg, usdt0, link, dai, cbbtc, bnb
-    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / QuoterV2 / NPM / Erc20
-  strategies/            # optional strategy abstractions
+    abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / QuoterV2 / NPM / Erc20 (incl. balanceOf/allowance)
+  strategies/            # optional strategy abstractions (feature-gated)
     mod.rs                # Strategy trait + re-exports
     errors.rs             # StrategyError
-    constant_window.rs    # ConstantWindowStrategy + builder
-    price_source/         # PriceSource, BinancePriceSource, PriceSourceError
+    utils.rs              # BPS price adjustment helpers
+    constant_window/
+      mod.rs              # re-exports strategy types
+      strategy.rs         # ConstantWindowStrategy + builder + run loop
+      position.rs         # in-memory open-price / NFT / tick bookkeeping
+    price_source/         # PriceSource, BinancePriceSource, StablePriceSource, PriceSourceError
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
   anvil.sh               # mainnet fork via Anvil
@@ -92,15 +96,16 @@ scripts/
 | --- | --- | --- |
 | `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter`, optional `QuoterV2`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. |
 | `Factory` | `chain_id`, factory `address` | Offline CREATE2 derivation; `pool()` loads a `Pool` via provider. |
-| `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC; can select a spacing-aligned tick within a conservative signed bps distance from the live token1/token0 midprice. |
+| `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC; provides external human-price conversion and directional tick-spacing alignment, and can select a spacing-aligned tick within a conservative signed bps distance from the live token1/token0 midprice. |
 | `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
 | `QuoterV2` | `chain_id`, quoter `address` | Resolves QuoterV2 deployments and estimates exact-input/output execution with `eth_call`. |
 | `NonfungiblePositionManager` | `chain_id`, NPM `address` | Resolves official NPM deployments and submits direct position lifecycle transactions. |
 | `Position` | NPM identity, `token_id`, token addresses, fee, immutable tick range | NFT-backed position identity. Liquidity, owed tokens, owner, and collectable amounts are always fetched from chain. |
 | `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
-| `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). |
+| `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). `TokenExt` also exposes `balance_of` / `allowance` reads plus approvals. |
 | `USDC` / `USDT` / … | unit structs | Offline `on_chain(chain_id)` registries sourced from Uniswap default-token-list for mainnet/arbitrum/base/avalanche/optimism/polygon/tempo. |
-| `BinancePriceSource` | no fields | Optional Spot `BASEUSDT@bookTicker` source; emits bid/ask midpoint prices through a Tokio unbounded receiver. |
+| `BinancePriceSource` | no fields | Optional Spot `BASEUSDT@bookTicker` source; keeps the latest bid/ask midpoint in a Tokio `watch` channel. |
+| `StablePriceSource` | no fields | Optional constant `1.0` USD source for supported stablecoins via a Tokio `watch` channel. |
 
 ### Construction paths
 
@@ -122,15 +127,33 @@ Router parameter builders provide direct amount-bound setters. `then_default()` 
 
 NPM calltypes follow the same builder pattern (`CreatePositionParams`, `IncreaseLiquidityParams`, `DecreaseLiquidityParams`, `CollectParams`, `ClosePositionParams`). Seed from a `Pool` or `Position` where applicable, set required amounts/ticks/recipient, then `then_default()` for permissive mins (`0`), collect-all maxes (`u128::MAX`), and a ~30-day deadline.
 
-`strategies` is deliberately an interface layer rather than a strategy runner. `Strategy::run`
-takes `&mut self`, a client, and the pool `Address` the strategy should trade, spawns a Tokio
-task, stores the `JoinHandle`, and returns `Ok(())` on successful start. `Strategy::abort` stops
-that task. `PriceSource::price` produces an unbounded receiver, and
-`ConstantWindowStrategy::run` remains intentionally unimplemented.
-`BinancePriceSource` maps
-`WETH` to `ETH` and `WBTC` to `BTC`, then subscribes to Binance Spot `BASEUSDT@bookTicker` and
-emits the best bid/ask midpoint. It closes the receiver when the socket, payload parsing, or
-consumer terminates.
+`strategies` is deliberately an interface layer rather than a full strategy runner framework.
+`Strategy::run` takes `&mut self`, a client, and the pool `Address` the strategy should trade,
+spawns a Tokio task, stores the `JoinHandle`, and returns `Ok(())` on successful start.
+`Strategy::abort` aborts that task immediately and does not close any live NFT.
+`PriceSource::price` produces a Tokio `watch::Receiver<f64>` holding the latest USD price.
+`ConstantWindowStrategy` is parameterized by separate token0/token1 price sources and tracks a
+runtime `position` (`open_price`, NFT id, ticks) owned by the single run task.
+`ConstantWindowStrategy::price` reads the latest values from token0/token1 USD `watch`
+receivers and returns Uniswap-style mid (`token1` per `token0`) as `price0_usd / price1_usd`
+(for example Binance for WETH and Stable for USDT). That external mid is authoritative for both
+tick centering and rebalance decisions.
+
+`ConstantWindowStrategy::run` lifecycle:
+
+1. Hydrate `Pool::from_address` and subscribe both price sources
+2. `pre_run` — close every owner NPM position matching the exact pool key `(token0, token1, fee)`
+3. `validate` — nonzero maxima; each rebalance threshold strictly inside its window length;
+   positive finite prices; wallet balances and existing NPM allowances ≥ both maxima (no auto-approve)
+4. Loop — `None` → `set_position` (mint around external mid using configured maxima);
+   `Some` → `check_position` (hold while mid is within inclusive rebalance thresholds of
+   `open_price`, else `close_position` and clear bookkeeping so the next iteration mints again);
+   after each iteration wait on either price `watch` update
+
+`BinancePriceSource` maps `WETH` to `ETH` and `WBTC` to `BTC`, waits for the first
+`BASEUSDT@bookTicker` midpoint, then keeps updating a `watch` channel until the socket, payload
+parsing, or consumer terminates. `StablePriceSource` returns a `watch` seeded at `1.0` for
+supported USD stables.
 
 ## Design rules
 
@@ -142,13 +165,15 @@ consumer terminates.
 
 ## Errors
 
-`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and currently covers already-running starts plus wrapped `PriceSourceError`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures.
+`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures.
 
 ## Local testing
 
 1. `./scripts/anvil.sh` — fork Ethereum mainnet
 2. `./scripts/fund.sh` — fund the Anvil test account
-3. Run focused examples (each loads `.env` with `LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`):
+3. Run the constant-window strategy or focused examples (each loads `.env` with
+   `LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`):
+   - `cargo run -p uniswap-v3-rs-bin`
    - `cargo run -p uniswap-v3-rs-bin --example list_positions`
    - `cargo run -p uniswap-v3-rs-bin --example create_position`
    - `cargo run -p uniswap-v3-rs-bin --example increase_liquidity -- <token_id>`
