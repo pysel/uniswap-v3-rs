@@ -1,7 +1,6 @@
 use std::{env, error::Error};
 
 use alloy::signers::local::PrivateKeySigner;
-use alloy_primitives::U256;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use uniswap_v3_rs::{
@@ -14,12 +13,18 @@ use uniswap_v3_rs::{
 };
 
 const FEE: u32 = 500;
-const WINDOW_BPS: BPS = BPS::new(100);
-const REBALANCE_BPS: BPS = BPS::new(50);
+const WINDOW_BPS: BPS = BPS::new(10);
+const REBALANCE_BPS: BPS = BPS::new(5);
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv()?;
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
 
     let rpc_url = env::var("LOCAL_RPC_URL")?;
     let signer: PrivateKeySigner = env::var("TEST_PRIVATE_KEY")?.parse()?;
@@ -27,6 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = UniswapV3Client::builder()
         .rpc_url(rpc_url)
         .signer(signer)
+        .gas_multiplier(1.5)
         .build()
         .await?;
 
@@ -75,10 +81,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("press Ctrl+C to abort (does not close the live NFT)");
 
-    strategy.run(client, pool.address())?;
-    tokio::signal::ctrl_c().await?;
-    strategy.abort();
-    println!("aborted");
+    let handle = strategy.run(client, pool.address())?;
+    let abort = handle.abort_handle();
 
-    Ok(())
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            abort.abort();
+            println!("aborted");
+            Ok(())
+        }
+        result = handle => Ok(result??),
+    }
 }

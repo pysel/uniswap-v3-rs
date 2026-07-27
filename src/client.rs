@@ -45,6 +45,7 @@ pub struct UniswapV3Client {
     quoter: Option<QuoterV2>,
     position_manager: Option<NonfungiblePositionManager>,
     factory: Factory,
+    gas_multiplier: Option<f64>,
 }
 
 impl UniswapV3Client {
@@ -78,6 +79,10 @@ impl UniswapV3Client {
 
     pub fn position_manager(&self) -> Option<&NonfungiblePositionManager> {
         self.position_manager.as_ref()
+    }
+
+    pub fn gas_multiplier(&self) -> Option<f64> {
+        self.gas_multiplier
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, UniswapV3Error> {
@@ -149,7 +154,12 @@ impl UniswapV3Client {
         value: Option<U256>,
     ) -> Result<CreatePositionResponse, UniswapV3Error> {
         self.require_position_manager()?
-            .mint(&self.provider, params, value.unwrap_or_default())
+            .mint(
+                &self.provider,
+                params,
+                value.unwrap_or_default(),
+                self.gas_multiplier,
+            )
             .await
     }
 
@@ -159,7 +169,12 @@ impl UniswapV3Client {
         value: Option<U256>,
     ) -> Result<IncreaseLiquidityResponse, UniswapV3Error> {
         self.require_position_manager()?
-            .increase_liquidity(&self.provider, params, value.unwrap_or_default())
+            .increase_liquidity(
+                &self.provider,
+                params,
+                value.unwrap_or_default(),
+                self.gas_multiplier,
+            )
             .await
     }
 
@@ -168,7 +183,7 @@ impl UniswapV3Client {
         params: DecreaseLiquidityParams,
     ) -> Result<DecreaseLiquidityResponse, UniswapV3Error> {
         self.require_position_manager()?
-            .decrease_liquidity(&self.provider, params)
+            .decrease_liquidity(&self.provider, params, self.gas_multiplier)
             .await
     }
 
@@ -177,7 +192,7 @@ impl UniswapV3Client {
         params: CollectParams,
     ) -> Result<CollectPositionResponse, UniswapV3Error> {
         self.require_position_manager()?
-            .collect(&self.provider, params)
+            .collect(&self.provider, params, self.gas_multiplier)
             .await
     }
 
@@ -187,7 +202,7 @@ impl UniswapV3Client {
     ) -> Result<BurnPositionResponse, UniswapV3Error> {
         self.ensure_position_manager(position)?;
         self.require_position_manager()?
-            .burn(&self.provider, position.token_id())
+            .burn(&self.provider, position.token_id(), self.gas_multiplier)
             .await
     }
 
@@ -207,6 +222,7 @@ impl UniswapV3Client {
                 fee,
                 sqrt_price_x96,
                 value.unwrap_or_default(),
+                self.gas_multiplier,
             )
             .await
     }
@@ -239,7 +255,9 @@ impl UniswapV3Client {
         )));
         data.push(manager.burn_calldata(position.token_id()));
 
-        manager.close(&self.provider, data).await
+        manager
+            .close(&self.provider, data, self.gas_multiplier)
+            .await
     }
 
     pub async fn quote_exact_input(
@@ -285,7 +303,12 @@ impl UniswapV3Client {
     ) -> Result<ExactInputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_input(&self.provider, params.into(), value)
+            .exact_input(
+                &self.provider,
+                params.into(),
+                value,
+                self.gas_multiplier,
+            )
             .await
     }
 
@@ -296,7 +319,12 @@ impl UniswapV3Client {
     ) -> Result<ExactOutputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_output(&self.provider, params.into(), value)
+            .exact_output(
+                &self.provider,
+                params.into(),
+                value,
+                self.gas_multiplier,
+            )
             .await
     }
 
@@ -307,7 +335,12 @@ impl UniswapV3Client {
     ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_input_single(&self.provider, params.into(), value)
+            .exact_input_single(
+                &self.provider,
+                params.into(),
+                value,
+                self.gas_multiplier,
+            )
             .await
     }
 
@@ -318,7 +351,12 @@ impl UniswapV3Client {
     ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_output_single(&self.provider, params.into(), value)
+            .exact_output_single(
+                &self.provider,
+                params.into(),
+                value,
+                self.gas_multiplier,
+            )
             .await
     }
 
@@ -356,6 +394,7 @@ impl UniswapV3Client {
 pub struct UniswapV3ClientBuilder {
     rpc_url: Option<String>,
     wallet: Option<EthereumWallet>,
+    gas_multiplier: Option<f64>,
 }
 
 impl UniswapV3ClientBuilder {
@@ -371,6 +410,11 @@ impl UniswapV3ClientBuilder {
 
     pub fn wallet(mut self, wallet: EthereumWallet) -> Self {
         self.wallet = Some(wallet);
+        self
+    }
+
+    pub fn gas_multiplier(mut self, gas_multiplier: f64) -> Self {
+        self.gas_multiplier = Some(gas_multiplier);
         self
     }
 
@@ -412,6 +456,7 @@ impl UniswapV3ClientBuilder {
             swap_router,
             quoter,
             position_manager,
+            gas_multiplier: self.gas_multiplier,
         })
     }
 }

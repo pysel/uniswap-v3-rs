@@ -5,8 +5,6 @@ use crate::{errors::UniswapV3Error, strategies::price_source::PriceSourceError};
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum StrategyError {
-    #[error("strategy is already running")]
-    AlreadyRunning,
     #[error(
         "invalid price: token USD prices must be finite and strictly positive, and token1 price must be non-zero"
     )]

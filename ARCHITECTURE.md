@@ -12,7 +12,7 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `strategies` | yes | Enables strategy interfaces and Binance/Stable price streams. |
+| `strategies` | yes | Enables strategy interfaces, Binance/Stable price streams, and `tracing` logs. |
 
 SwapRouter02, QuoterV2, and NPM APIs are always compiled.
 
@@ -94,7 +94,7 @@ scripts/
 
 | Type | Owns | Notes |
 | --- | --- | --- |
-| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, `Factory`, optional `SwapRouter`, optional `QuoterV2`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. |
+| `UniswapV3Client` | `rpc_url`, Alloy `DynProvider`, optional wallet, optional `gas_multiplier`, `Factory`, optional `SwapRouter`, optional `QuoterV2`, optional `NonfungiblePositionManager` | Entry point. Builder resolves factory (required) and optional deployments from RPC chain id. When `gas_multiplier` is set, client-submitted txs estimate gas then pad the limit (e.g. `1.3`) before send. |
 | `Factory` | `chain_id`, factory `address` | Offline CREATE2 derivation; `pool()` loads a `Pool` via provider. |
 | `Pool` | factory, sorted `token0`/`token1`, `fee`, `tick_spacing` | Address is **derived**, not stored. Mutable state (e.g. `sqrt_price_x96`) fetched via RPC; provides external human-price conversion and directional tick-spacing alignment, and can select a spacing-aligned tick within a conservative signed bps distance from the live token1/token0 midprice. |
 | `SwapRouter` | `chain_id`, router `address` | Resolves SwapRouter02 deployments and submits exact-input/output transactions. |
@@ -129,8 +129,8 @@ NPM calltypes follow the same builder pattern (`CreatePositionParams`, `Increase
 
 `strategies` is deliberately an interface layer rather than a full strategy runner framework.
 `Strategy::run` takes `&mut self`, a client, and the pool `Address` the strategy should trade,
-spawns a Tokio task, stores the `JoinHandle`, and returns `Ok(())` on successful start.
-`Strategy::abort` aborts that task immediately and does not close any live NFT.
+spawns a Tokio task, and returns `JoinHandle<Result<(), StrategyError>>` so callers can await
+failures or `abort()` the handle. Aborting the task does not close any live NFT.
 `PriceSource::price` produces a Tokio `watch::Receiver<f64>` holding the latest USD price.
 `ConstantWindowStrategy` is parameterized by separate token0/token1 price sources and tracks a
 runtime `position` (`open_price`, NFT id, ticks) owned by the single run task.
@@ -150,10 +150,10 @@ tick centering and rebalance decisions.
    `open_price`, else `close_position` and clear bookkeeping so the next iteration mints again);
    after each iteration wait on either price `watch` update
 
-`BinancePriceSource` maps `WETH` to `ETH` and `WBTC` to `BTC`, waits for the first
-`BASEUSDT@bookTicker` midpoint, then keeps updating a `watch` channel until the socket, payload
-parsing, or consumer terminates. `StablePriceSource` returns a `watch` seeded at `1.0` for
-supported USD stables.
+`BinancePriceSource` maps `WETH` to `ETH` and `WBTC` to `BTC`, subscribes to the lowercase
+Spot stream `baseusdt@bookTicker`, waits for the first midpoint, then keeps updating a `watch`
+channel until the socket, payload parsing, or consumer terminates. Connect and first-tick waits
+are bounded. `StablePriceSource` returns a `watch` seeded at `1.0` for supported USD stables.
 
 ## Design rules
 

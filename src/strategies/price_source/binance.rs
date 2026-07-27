@@ -1,14 +1,17 @@
-use std::future::Future;
+use std::{future::Future, time::Duration};
 
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
+use tracing::{info, warn};
 use uniswap_sdk_core::prelude::{BaseCurrencyCore, Token};
 
 use crate::strategies::price_source::{PriceSource, PriceSourceError};
 
 const BINANCE_STREAM_URL: &str = "wss://stream.binance.com:9443/ws";
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const FIRST_TICK_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Default)]
 pub struct BinancePriceSource;
@@ -29,7 +32,8 @@ impl BinancePriceSource {
             symbol => symbol,
         };
 
-        Ok(format!("{base}usdt"))
+        // Binance combined/raw stream names are lowercase (e.g. ethusdt@bookTicker).
+        Ok(format!("{base}usdt").to_lowercase())
     }
 
     fn midpoint(book_ticker: &BookTicker) -> Option<f64> {
@@ -48,44 +52,59 @@ impl PriceSource for BinancePriceSource {
         async move {
             let symbol = Self::symbol(&token)?;
             let url = format!("{BINANCE_STREAM_URL}/{symbol}@bookTicker");
-            let (stream, _) = connect_async(url)
+            info!(%url, "connecting binance bookTicker stream");
+            let (stream, _) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url.clone()))
                 .await
+                .map_err(|_| {
+                    PriceSourceError::SubscriptionError(format!("connect timeout: {url}"))
+                })?
                 .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
             let mut stream = stream;
 
-            let initial = loop {
-                let message = stream.next().await.ok_or_else(|| {
-                    PriceSourceError::SubscriptionError("binance stream closed before first price".into())
-                })?;
-                let message = message.map_err(|error| {
-                    PriceSourceError::SubscriptionError(error.to_string())
-                })?;
-                let Ok(text) = message.into_text() else {
-                    continue;
-                };
-                let Ok(book_ticker) = serde_json::from_str::<BookTicker>(&text) else {
-                    continue;
-                };
-                if let Some(mid) = Self::midpoint(&book_ticker) {
-                    break mid;
+            let initial = tokio::time::timeout(FIRST_TICK_TIMEOUT, async {
+                loop {
+                    let message = stream.next().await.ok_or_else(|| {
+                        PriceSourceError::SubscriptionError(
+                            "binance stream closed before first price".into(),
+                        )
+                    })?;
+                    let message = message.map_err(|error| {
+                        PriceSourceError::SubscriptionError(error.to_string())
+                    })?;
+                    let Ok(text) = message.into_text() else {
+                        continue;
+                    };
+                    let Ok(book_ticker) = serde_json::from_str::<BookTicker>(&text) else {
+                        continue;
+                    };
+                    if let Some(mid) = Self::midpoint(&book_ticker) {
+                        break Ok::<f64, PriceSourceError>(mid);
+                    }
                 }
-            };
+            })
+            .await
+            .map_err(|_| {
+                PriceSourceError::SubscriptionError(format!(
+                    "first bookTicker timeout: {url}"
+                ))
+            })??;
 
             let (tx, rx) = watch::channel(initial);
 
             tokio::spawn(async move {
                 while let Some(message) = stream.next().await {
                     let Ok(message) = message else {
+                        warn!("binance stream closed");
                         break;
                     };
                     let Ok(text) = message.into_text() else {
                         continue;
                     };
                     let Ok(book_ticker) = serde_json::from_str::<BookTicker>(&text) else {
-                        break;
+                        continue;
                     };
                     let Some(mid) = Self::midpoint(&book_ticker) else {
-                        break;
+                        continue;
                     };
 
                     if tx.send(mid).is_err() {
@@ -105,4 +124,32 @@ struct BookTicker {
     ask: String,
     #[serde(rename = "b")]
     bid: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy_primitives::Address;
+    use uniswap_sdk_core::prelude::Token;
+
+    use super::BinancePriceSource;
+
+    fn token(symbol: &str) -> Token {
+        Token::new(1, Address::ZERO, 18, Some(symbol.into()), None, 0, 0)
+    }
+
+    #[test]
+    fn stream_symbol_is_lowercase() {
+        assert_eq!(
+            BinancePriceSource::symbol(&token("WETH")).unwrap(),
+            "ethusdt"
+        );
+        assert_eq!(
+            BinancePriceSource::symbol(&token("WBTC")).unwrap(),
+            "btcusdt"
+        );
+        assert_eq!(
+            BinancePriceSource::symbol(&token("UNI")).unwrap(),
+            "uniusdt"
+        );
+    }
 }

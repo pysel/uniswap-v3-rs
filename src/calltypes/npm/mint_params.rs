@@ -22,9 +22,6 @@ pub struct CreatePositionResponse {
     pub position: TransactionFuture<CreatePositionResult>,
 }
 
-const DEFAULT_AMOUNT0_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount
-const DEFAULT_AMOUNT1_MIN_BPS_OF_DESIRED: u64 = 500; // 5% of desired amount1
-
 impl CreatePositionParams {
     pub fn builder(pool: &Pool) -> CreatePositionParamsBuilder {
         CreatePositionParamsBuilder {
@@ -124,15 +121,12 @@ impl CreatePositionParamsBuilder {
     }
 
     pub fn then_default(mut self) -> Self {
-        let bps_denominator = U256::from(10_000);
-        if let (None, Some(amount0_desired)) = (self.amount0_min, self.amount0_desired) {
-            let amount0_min_bps_of_desired = U256::from(DEFAULT_AMOUNT0_MIN_BPS_OF_DESIRED);
-            self.amount0_min = Some(amount0_desired * amount0_min_bps_of_desired / bps_denominator);
+        if self.amount0_min.is_none() {
+            self.amount0_min = Some(U256::ZERO);
         }
 
-        if let (None, Some(amount1_desired)) = (self.amount1_min, self.amount1_desired) {
-            let amount1_min_bps_of_desired = U256::from(DEFAULT_AMOUNT1_MIN_BPS_OF_DESIRED);
-            self.amount1_min = Some(amount1_desired * amount1_min_bps_of_desired / bps_denominator);
+        if self.amount1_min.is_none() {
+            self.amount1_min = Some(U256::ZERO);
         }
 
         if self.deadline.is_none() {

@@ -35,6 +35,7 @@ let signer: PrivateKeySigner = std::env::var("PRIVATE_KEY")?.parse()?;
 let client = UniswapV3Client::builder()
     .rpc_url(std::env::var("RPC_URL")?)
     .signer(signer)
+    .gas_multiplier(1.3) // optional; pads eth_estimateGas before send
     .build()
     .await?;
 ```
@@ -171,8 +172,8 @@ state.
 ## Strategies
 
 The `strategies` feature (on by default) provides shared strategy and price-source interfaces.
-`BinancePriceSource` opens a Spot `BASEUSDT@bookTicker` stream and keeps the latest bid/ask
-midpoint in a Tokio `watch` channel. `StablePriceSource` exposes a constant `1.0` USD price the
+`BinancePriceSource` opens a Spot lowercase `baseusdt@bookTicker` stream and keeps the latest
+bid/ask midpoint in a Tokio `watch` channel. `StablePriceSource` exposes a constant `1.0` USD price the
 same way for supported stables. Build a `ConstantWindowStrategy` with BPS window/rebalance
 setters, max token amounts, and `.price_source_token0(...)` / `.price_source_token1(...)`
 (for example Binance + Stable).
@@ -188,7 +189,8 @@ token0/token1 mid from `price()` (`price0_usd / price1_usd`). On `Strategy::run`
 4. Loops: open a window when none is tracked; when one is tracked, hold while mid stays within
    inclusive rebalance thresholds of the open price, otherwise close and reopen on the next mid
 
-`Strategy::abort` stops the monitoring task immediately and does **not** close any live NFT.
+`Strategy::run` returns the task `JoinHandle<Result<(), StrategyError>>` so callers can await
+failures or abort the handle. Aborting the task does **not** close any live NFT.
 
 There are more focused runnable examples in [`bin/examples`](bin/examples), including listing and
 closing positions. The SDK is still young and there are definitely rough edges, but the core swap

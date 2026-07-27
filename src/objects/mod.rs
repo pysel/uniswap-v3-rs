@@ -1,11 +1,14 @@
 mod abi_definitions;
 mod factory;
+mod gas;
 mod npm;
 mod pool;
 mod position;
 mod quoter;
 mod router;
 mod token;
+
+pub(crate) use gas::send_with_gas_multiplier;
 
 pub(crate) use abi_definitions::Erc20 as Erc20Contract;
 pub(crate) use abi_definitions::NonfungiblePositionManager as NpmContract;

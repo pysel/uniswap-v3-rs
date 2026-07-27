@@ -10,6 +10,7 @@ use crate::{
         ExactOutputSingleResponse,
     },
     errors::UniswapV3Error,
+    objects::send_with_gas_multiplier,
 };
 
 use super::{amount_in_future, amount_out_future};
@@ -55,13 +56,11 @@ impl SwapRouter {
         provider: &P,
         params: ExactInputParams,
         value: U256,
+        gas_multiplier: Option<f64>,
     ) -> Result<ExactInputResponse, UniswapV3Error> {
-        let pending = SwapRouterContract::new(self.address, provider)
-            .exactInput(params)
-            .value(value)
-            .send()
-            .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+        let contract = SwapRouterContract::new(self.address, provider);
+        let call = contract.exactInput(params).value(value);
+        let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
         Ok(ExactInputResponse {
             tx_hash: *pending.tx_hash(),
@@ -74,13 +73,11 @@ impl SwapRouter {
         provider: &P,
         params: ExactInputSingleParams,
         value: U256,
+        gas_multiplier: Option<f64>,
     ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
-        let pending = SwapRouterContract::new(self.address, provider)
-            .exactInputSingle(params)
-            .value(value)
-            .send()
-            .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+        let contract = SwapRouterContract::new(self.address, provider);
+        let call = contract.exactInputSingle(params).value(value);
+        let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
         Ok(ExactInputSingleResponse {
             tx_hash: *pending.tx_hash(),
@@ -93,13 +90,11 @@ impl SwapRouter {
         provider: &P,
         params: ExactOutputParams,
         value: U256,
+        gas_multiplier: Option<f64>,
     ) -> Result<ExactOutputResponse, UniswapV3Error> {
-        let pending = SwapRouterContract::new(self.address, provider)
-            .exactOutput(params)
-            .value(value)
-            .send()
-            .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+        let contract = SwapRouterContract::new(self.address, provider);
+        let call = contract.exactOutput(params).value(value);
+        let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
         Ok(ExactOutputResponse {
             tx_hash: *pending.tx_hash(),
@@ -112,13 +107,11 @@ impl SwapRouter {
         provider: &P,
         params: ExactOutputSingleParams,
         value: U256,
+        gas_multiplier: Option<f64>,
     ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
-        let pending = SwapRouterContract::new(self.address, provider)
-            .exactOutputSingle(params)
-            .value(value)
-            .send()
-            .await
-            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+        let contract = SwapRouterContract::new(self.address, provider);
+        let call = contract.exactOutputSingle(params).value(value);
+        let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
         Ok(ExactOutputSingleResponse {
             tx_hash: *pending.tx_hash(),

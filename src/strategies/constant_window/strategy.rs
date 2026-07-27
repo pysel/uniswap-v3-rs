@@ -1,6 +1,7 @@
 use alloy::primitives::Address;
 use alloy_primitives::U256;
 use tokio::{sync::watch, task::JoinHandle};
+use tracing::info;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use crate::{
@@ -18,9 +19,6 @@ use crate::{
 };
 
 pub struct ConstantWindowStrategy<T0, T1> {
-    // A handle of a running strategy.
-    handle: Option<JoinHandle<Result<(), StrategyError>>>,
-
     // Strategy parameters.
 
     // USD price source for pool token0.
@@ -76,7 +74,6 @@ where
             max_token1_amount,
             price_source_token0,
             price_source_token1,
-            handle: None,
             position: None,
         }
     }
@@ -96,7 +93,7 @@ where
         {
             return Err(StrategyError::InvalidPrice);
         }
-        Ok(price0_usd / price1_usd)
+        Ok(price1_usd / price0_usd)
     }
 
     /// Returns whether an NPM position belongs to the exact pool key.
@@ -270,6 +267,14 @@ where
         let response = client.create_position(params, None).await?;
         let minted = response.position.await?;
 
+        info!(
+            position_id = %minted.token_id,
+            open_price = mid,
+            lower_tick,
+            upper_tick,
+            "constant window position opened"
+        );
+
         self.position = Some(Position::new(
             mid,
             minted.token_id,
@@ -286,14 +291,23 @@ where
         price0: &watch::Receiver<f64>,
         price1: &watch::Receiver<f64>,
     ) -> Result<(), StrategyError> {
-        let Some(open_price) = self.position.as_ref().map(|position| position.open_price) else {
+        let Some(position) = self.position else {
             return Ok(());
         };
 
         let current = Self::price(price0, price1)?;
-        if self.check_position_bounds(open_price, current) {
+        if self.check_position_bounds(position.open_price, current) {
             return Ok(());
         }
+
+        info!(
+            position_id = %position.position_id,
+            open_price = position.open_price,
+            current_price = current,
+            lower_tick = position.lower_tick,
+            upper_tick = position.upper_tick,
+            "constant window position rebalancing"
+        );
 
         self.close_position(client).await
     }
@@ -303,17 +317,25 @@ where
         let owner = client
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
-        let Some(position_id) = self.position.as_ref().map(|position| position.position_id) else {
+        let Some(position) = self.position else {
             return Ok(());
         };
 
-        let npm_position = client.get_position(position_id).await?;
+        let npm_position = client.get_position(position.position_id).await?;
         let params = ClosePositionParams::builder()
             .recipient(owner)
             .then_default()
             .build()?;
         let response = client.close_position(&npm_position, params).await?;
         let _ = response.amounts.await?;
+
+        info!(
+            position_id = %position.position_id,
+            open_price = position.open_price,
+            lower_tick = position.lower_tick,
+            upper_tick = position.upper_tick,
+            "constant window position closed"
+        );
 
         self.position = None;
         Ok(())
@@ -361,13 +383,12 @@ where
     T0: PriceSource + 'static,
     T1: PriceSource + 'static,
 {
-    fn run(&mut self, client: UniswapV3Client, pool: Address) -> Result<(), StrategyError> {
-        if self.handle.is_some() {
-            return Err(StrategyError::AlreadyRunning);
-        }
-
+    fn run(
+        &mut self,
+        client: UniswapV3Client,
+        pool: Address,
+    ) -> Result<JoinHandle<Result<(), StrategyError>>, StrategyError> {
         let worker = Self {
-            handle: None,
             price_source_token0: self.price_source_token0.clone(),
             price_source_token1: self.price_source_token1.clone(),
             length_below_mid: self.length_below_mid,
@@ -379,15 +400,7 @@ where
             position: self.position.take(),
         };
 
-        self.handle = Some(tokio::spawn(async move { worker.run_loop(client, pool).await }));
-        Ok(())
-    }
-
-    /// Aborts the monitoring task immediately without closing any live NFT.
-    fn abort(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-        }
+        Ok(tokio::spawn(async move { worker.run_loop(client, pool).await }))
     }
 }
 
