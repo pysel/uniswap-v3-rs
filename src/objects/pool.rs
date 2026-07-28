@@ -226,8 +226,7 @@ impl Pool {
 
         let quotient = lower.div_euclid(self.tick_spacing);
         let remainder = lower.rem_euclid(self.tick_spacing);
-        let rounded_index =
-            quotient + (remainder + self.tick_spacing / 2) / self.tick_spacing;
+        let rounded_index = quotient + (remainder + self.tick_spacing / 2) / self.tick_spacing;
         let tick = rounded_index * self.tick_spacing;
 
         Ok(tick.clamp(

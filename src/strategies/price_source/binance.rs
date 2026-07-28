@@ -68,9 +68,8 @@ impl PriceSource for BinancePriceSource {
                             "binance stream closed before first price".into(),
                         )
                     })?;
-                    let message = message.map_err(|error| {
-                        PriceSourceError::SubscriptionError(error.to_string())
-                    })?;
+                    let message = message
+                        .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
                     let Ok(text) = message.into_text() else {
                         continue;
                     };
@@ -84,9 +83,7 @@ impl PriceSource for BinancePriceSource {
             })
             .await
             .map_err(|_| {
-                PriceSourceError::SubscriptionError(format!(
-                    "first bookTicker timeout: {url}"
-                ))
+                PriceSourceError::SubscriptionError(format!("first bookTicker timeout: {url}"))
             })??;
 
             let (tx, rx) = watch::channel(initial);
@@ -94,9 +91,13 @@ impl PriceSource for BinancePriceSource {
             tokio::spawn(async move {
                 while let Some(message) = stream.next().await {
                     let Ok(message) = message else {
-                        warn!("binance stream closed");
-                        break;
+                        if let Err(error) = message {
+                            warn!("binance stream error: {}", error);
+                            break;
+                        }
+                        continue;
                     };
+
                     let Ok(text) = message.into_text() else {
                         continue;
                     };

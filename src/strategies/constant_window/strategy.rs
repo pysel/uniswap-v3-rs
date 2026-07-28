@@ -248,12 +248,8 @@ where
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
         let mid = Self::price(price0, price1)?;
-        let (lower_tick, upper_tick) = Self::ticks_from_external_mid(
-            pool,
-            mid,
-            self.length_below_mid,
-            self.length_above_mid,
-        )?;
+        let (lower_tick, upper_tick) =
+            Self::ticks_from_external_mid(pool, mid, self.length_below_mid, self.length_above_mid)?;
 
         let params = CreatePositionParams::builder(pool)
             .tick_lower(lower_tick)
@@ -275,12 +271,7 @@ where
             "constant window position opened"
         );
 
-        self.position = Some(Position::new(
-            mid,
-            minted.token_id,
-            lower_tick,
-            upper_tick,
-        ));
+        self.position = Some(Position::new(mid, minted.token_id, lower_tick, upper_tick));
         Ok(())
     }
 
@@ -400,7 +391,9 @@ where
             position: self.position.take(),
         };
 
-        Ok(tokio::spawn(async move { worker.run_loop(client, pool).await }))
+        Ok(tokio::spawn(
+            async move { worker.run_loop(client, pool).await },
+        ))
     }
 }
 
@@ -527,12 +520,12 @@ where
         let rebalance_above_threshold = self.rebalance_above_threshold.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("REBALANCE_ABOVE_THRESHOLD".to_string())
         })?;
-        let max_token0_amount = self.max_token0_amount.ok_or_else(|| {
-            UniswapV3Error::RequiredFieldMissing("MAX_TOKEN0_AMOUNT".to_string())
-        })?;
-        let max_token1_amount = self.max_token1_amount.ok_or_else(|| {
-            UniswapV3Error::RequiredFieldMissing("MAX_TOKEN1_AMOUNT".to_string())
-        })?;
+        let max_token0_amount = self
+            .max_token0_amount
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("MAX_TOKEN0_AMOUNT".to_string()))?;
+        let max_token1_amount = self
+            .max_token1_amount
+            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("MAX_TOKEN1_AMOUNT".to_string()))?;
         let price_source_token0 = self.price_source_token0.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("PRICE_SOURCE_TOKEN0".to_string())
         })?;
@@ -672,13 +665,14 @@ mod tests {
     #[test]
     fn ticks_from_external_mid_are_spacing_aligned_and_ordered() {
         let pool = test_pool(18, 18, 60);
-        let (lower, upper) = ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::ticks_from_external_mid(
-            &pool,
-            2000.0,
-            BPS::new(100),
-            BPS::new(200),
-        )
-        .unwrap();
+        let (lower, upper) =
+            ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::ticks_from_external_mid(
+                &pool,
+                2000.0,
+                BPS::new(100),
+                BPS::new(200),
+            )
+            .unwrap();
 
         assert!(lower < upper);
         assert_eq!(lower % 60, 0);
@@ -728,9 +722,11 @@ mod tests {
             -10,
             10,
         );
-        assert!(ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::matches_pool(
-            &matching, &pool
-        ));
+        assert!(
+            ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::matches_pool(
+                &matching, &pool
+            )
+        );
 
         let wrong_fee = NpmPosition::new_unchecked(
             manager,
@@ -741,9 +737,11 @@ mod tests {
             -10,
             10,
         );
-        assert!(!ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::matches_pool(
-            &wrong_fee, &pool
-        ));
+        assert!(
+            !ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::matches_pool(
+                &wrong_fee, &pool
+            )
+        );
 
         let wrong_token = NpmPosition::new_unchecked(
             manager,
@@ -754,9 +752,12 @@ mod tests {
             -10,
             10,
         );
-        assert!(!ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::matches_pool(
-            &wrong_token, &pool
-        ));
+        assert!(
+            !ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::matches_pool(
+                &wrong_token,
+                &pool
+            )
+        );
     }
 
     #[test]

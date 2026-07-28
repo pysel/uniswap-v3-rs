@@ -303,12 +303,7 @@ impl UniswapV3Client {
     ) -> Result<ExactInputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_input(
-                &self.provider,
-                params.into(),
-                value,
-                self.gas_multiplier,
-            )
+            .exact_input(&self.provider, params.into(), value, self.gas_multiplier)
             .await
     }
 
@@ -319,12 +314,7 @@ impl UniswapV3Client {
     ) -> Result<ExactOutputResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_output(
-                &self.provider,
-                params.into(),
-                value,
-                self.gas_multiplier,
-            )
+            .exact_output(&self.provider, params.into(), value, self.gas_multiplier)
             .await
     }
 
@@ -335,12 +325,7 @@ impl UniswapV3Client {
     ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_input_single(
-                &self.provider,
-                params.into(),
-                value,
-                self.gas_multiplier,
-            )
+            .exact_input_single(&self.provider, params.into(), value, self.gas_multiplier)
             .await
     }
 
@@ -351,12 +336,7 @@ impl UniswapV3Client {
     ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
         let value = value.unwrap_or(U256::from(0));
         self.require_swap_router()?
-            .exact_output_single(
-                &self.provider,
-                params.into(),
-                value,
-                self.gas_multiplier,
-            )
+            .exact_output_single(&self.provider, params.into(), value, self.gas_multiplier)
             .await
     }
 

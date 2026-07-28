@@ -15,17 +15,13 @@ pub enum StrategyError {
     SignerRequired,
     #[error("nonfungible position manager is required")]
     PositionManagerRequired,
-    #[error(
-        "insufficient balance for token {token}: required {required}, available {available}"
-    )]
+    #[error("insufficient balance for token {token}: required {required}, available {available}")]
     InsufficientBalance {
         token: Address,
         required: U256,
         available: U256,
     },
-    #[error(
-        "insufficient allowance for token {token}: required {required}, available {available}"
-    )]
+    #[error("insufficient allowance for token {token}: required {required}, available {available}")]
     InsufficientAllowance {
         token: Address,
         required: U256,

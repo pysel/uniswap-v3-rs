@@ -7,9 +7,7 @@ use uniswap_v3_rs::{
     calltypes::BPS,
     client::UniswapV3Client,
     objects::{TokenExt, USDC, WETH},
-    strategies::{
-        BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy,
-    },
+    strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy},
 };
 
 const FEE: u32 = 500;

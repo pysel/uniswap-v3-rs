@@ -142,7 +142,8 @@ impl NonfungiblePositionManager {
         gas_multiplier: Option<f64>,
     ) -> Result<CreatePositionResponse, UniswapV3Error> {
         let pending = if value.is_zero() {
-            self.send_mint(provider, params, value, gas_multiplier).await?
+            self.send_mint(provider, params, value, gas_multiplier)
+                .await?
         } else {
             let contract = NpmContract::new(self.address, provider);
             let data = vec![
