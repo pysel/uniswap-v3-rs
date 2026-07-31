@@ -42,13 +42,13 @@ impl BinancePriceSource {
         Some((bid + ask) / 2.0)
     }
 
-    async fn connect_with_timeout(url: &str) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, PriceSourceError> {
+    async fn connect_with_timeout(
+        url: &str,
+    ) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, PriceSourceError> {
         let (stream, _) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url))
-                .await
-                .map_err(|_| {
-                    PriceSourceError::SubscriptionError(format!("connect timeout: {url}"))
-                })?
-                .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
+            .await
+            .map_err(|_| PriceSourceError::SubscriptionError(format!("connect timeout: {url}")))?
+            .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
 
         Ok(stream)
     }
