@@ -3,7 +3,7 @@ use std::{future::Future, time::Duration};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::sync::watch;
-use tokio_tungstenite::connect_async;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use tracing::{info, warn};
 use uniswap_sdk_core::prelude::{BaseCurrencyCore, Token};
 
@@ -41,6 +41,17 @@ impl BinancePriceSource {
         let ask = book_ticker.ask.parse::<f64>().ok()?;
         Some((bid + ask) / 2.0)
     }
+
+    async fn connect_with_timeout(url: &str) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, PriceSourceError> {
+        let (stream, _) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url))
+                .await
+                .map_err(|_| {
+                    PriceSourceError::SubscriptionError(format!("connect timeout: {url}"))
+                })?
+                .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
+
+        Ok(stream)
+    }
 }
 
 impl PriceSource for BinancePriceSource {
@@ -53,13 +64,7 @@ impl PriceSource for BinancePriceSource {
             let symbol = Self::symbol(&token)?;
             let url = format!("{BINANCE_STREAM_URL}/{symbol}@bookTicker");
             info!(%url, "connecting binance bookTicker stream");
-            let (stream, _) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url.clone()))
-                .await
-                .map_err(|_| {
-                    PriceSourceError::SubscriptionError(format!("connect timeout: {url}"))
-                })?
-                .map_err(|error| PriceSourceError::SubscriptionError(error.to_string()))?;
-            let mut stream = stream;
+            let mut stream = Self::connect_with_timeout(&url).await?;
 
             let initial = tokio::time::timeout(FIRST_TICK_TIMEOUT, async {
                 loop {
@@ -93,6 +98,11 @@ impl PriceSource for BinancePriceSource {
                     let Ok(message) = message else {
                         if let Err(error) = message {
                             warn!("binance stream error: {}", error);
+                            if let Ok(new_stream) = Self::connect_with_timeout(&url).await {
+                                stream = new_stream;
+                                continue;
+                            }
+
                             break;
                         }
                         continue;
