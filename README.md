@@ -10,6 +10,16 @@ The goal: make swaps and concentrated-liquidity positions feel like normal Rust
 instead of making every application rebuild contract calls, path encoding, tick math, receipt
 decoding, and deployment address lookup from scratch.
 
+## Table of contents
+
+- [Install](#install)
+- [Estimate a swap](#estimate-a-swap)
+- [Swap USDC for WETH](#swap-usdc-for-weth)
+- [Create a liquidity position](#create-a-liquidity-position)
+- [Strategies](#strategies)
+  - [Constant window LP](#constant-window-lp)
+- [More examples](#more-examples)
+
 ## Install
 
 ```toml
@@ -172,28 +182,89 @@ state.
 ## Strategies
 
 The `strategies` feature (on by default) provides shared strategy and price-source interfaces.
-`BinancePriceSource` opens a Spot lowercase `baseusdt@bookTicker` stream and keeps the latest
-bid/ask midpoint in a Tokio `watch` channel. `StablePriceSource` exposes a constant `1.0` USD price the
-same way for supported stables. Build a `ConstantWindowStrategy` with BPS window/rebalance
-setters, portfolio fractions in `(0, 1]` via
-`.max_token0_amount_as_portfolio_fraction(...)` /
-`.max_token1_amount_as_portfolio_fraction(...)`, and
-`.price_source_token0(...)` / `.price_source_token1(...)` (for example Binance + Stable).
 
-`ConstantWindowStrategy` maintains a concentrated LP position centered on the external
-token0/token1 mid from `price()` (`price0_usd / price1_usd`). On `Strategy::run` it:
+- `BinancePriceSource` — Spot lowercase `baseusdt@bookTicker` stream; latest bid/ask midpoint in a
+  Tokio `watch` channel (reconnects if the socket drops).
+- `StablePriceSource` — constant `1.0` USD for supported stables via the same `watch` pattern.
+- `ConstantWindowStrategy` — keeps a concentrated LP range centered on an external mid
+  (`price0_usd / price1_usd`), rebalancing when that mid drifts beyond configured BPS thresholds.
 
-1. Hydrates the pool and price feeds
-2. Closes every owner NFT that matches the exact pool key `(token0, token1, fee)`
-3. Validates portfolio fractions, rebalance thresholds strictly inside window lengths, positive
-   prices, `balance * fraction > 0` for both tokens, and existing NPM allowances ≥ those sized
-   amounts (it never changes approvals)
-4. Loops: open a window when none is tracked (sizing each mint as live `balance * fraction`);
-   when one is tracked, hold while mid stays within inclusive rebalance thresholds of the open
-   price, otherwise close and reopen on the next mid
+`Strategy::run` returns a Tokio `JoinHandle<Result<(), StrategyError>>`. Callers can await
+failures or `abort()` the handle. Aborting the task does **not** close any live NFT.
 
-`Strategy::run` returns the task `JoinHandle<Result<(), StrategyError>>` so callers can await
-failures or abort the handle. Aborting the task does **not** close any live NFT.
+### Constant window LP
+
+Wire price sources in **pool token order** (token0 / token1), approve the NPM, then run. Each mint
+sizes `amount*_desired` as `balance * portfolio_fraction` at open time.
+
+On startup the strategy:
+
+1. Hydrates the pool and both price feeds
+2. Closes every owner NFT matching the pool key `(token0, token1, fee)`
+3. Validates fractions in `(0, 1]`, rebalance thresholds strictly inside window lengths, prices,
+   nonzero sized balances, and existing NPM allowances (it never changes approvals)
+4. Loops: mint when none is tracked; hold while mid stays within inclusive rebalance thresholds of
+   `open_price`; otherwise close and reopen on the next mid
+
+Example for a WETH/USDC pool where token0 is WETH and token1 is USDC (common on Base):
+
+```rust
+use uniswap_v3_rs::{
+    calltypes::BPS,
+    client::UniswapV3Client,
+    objects::{TokenExt, USDC, WETH},
+    strategies::{
+        BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy,
+    },
+};
+
+const FEE: u32 = 500;
+const WINDOW_BPS: BPS = BPS::new(100);     // ±100 bps around external mid
+const REBALANCE_BPS: BPS = BPS::new(50);   // reopen after ±50 bps drift
+
+let chain_id = client.get_chain_id().await?;
+let npm = client
+    .position_manager()
+    .expect("no NonfungiblePositionManager for this chain");
+let usdc = USDC::on_chain(chain_id).expect("USDC not deployed on chain");
+let weth = WETH::on_chain(chain_id).expect("WETH not deployed on chain");
+let pool = client.get_pool(weth.clone(), usdc.clone(), FEE).await?;
+
+// Price sources must match pool token0 / token1 order.
+assert_eq!(pool.token0().address(), weth.address());
+assert_eq!(pool.token1().address(), usdc.address());
+
+usdc.approve_unlimited(&client, npm.address()).await?;
+weth.approve_unlimited(&client, npm.address()).await?;
+
+let mut strategy = ConstantWindowStrategy::builder()
+    .length_below_mid(WINDOW_BPS)
+    .length_above_mid(WINDOW_BPS)
+    .rebalance_below_threshold(REBALANCE_BPS)
+    .rebalance_above_threshold(REBALANCE_BPS)
+    .max_token0_amount_as_portfolio_fraction(0.95)
+    .max_token1_amount_as_portfolio_fraction(0.95)
+    .price_source_token0(BinancePriceSource::new()) // WETH → ETHUSDT
+    .price_source_token1(StablePriceSource::new())  // USDC → 1.0
+    .build()?;
+
+let handle = strategy.run(client, pool.address())?;
+let abort = handle.abort_handle();
+
+tokio::select! {
+    _ = tokio::signal::ctrl_c() => {
+        abort.abort(); // does not close the live NFT
+    }
+    result = handle => {
+        result??;
+    }
+}
+```
+
+If your pool sorts the other way (token0 = USDC, token1 = WETH), swap the price-source assignments
+accordingly.
+
+## More examples
 
 There are more focused runnable examples in [`bin/examples`](bin/examples), including listing and
 closing positions. The SDK is still young and there are definitely rough edges, but the core swap
