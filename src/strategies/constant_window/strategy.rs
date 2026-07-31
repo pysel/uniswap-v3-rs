@@ -55,6 +55,7 @@ where
     T1: PriceSource,
 {
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         length_below_mid: BPS,
         length_above_mid: BPS,
@@ -167,17 +168,21 @@ where
         price0: &watch::Receiver<f64>,
         price1: &watch::Receiver<f64>,
     ) -> Result<(), StrategyError> {
-        if self.max_token0_amount_as_portfolio_fraction <= 0.0 || self.max_token0_amount_as_portfolio_fraction > 1.0 {
+        if self.max_token0_amount_as_portfolio_fraction <= 0.0
+            || self.max_token0_amount_as_portfolio_fraction > 1.0
+        {
             return Err(StrategyError::InvalidConfig(
                 "max_token0_amount_as_portfolio_fraction must be in (0, 1]".to_string(),
             ));
         }
-        if self.max_token1_amount_as_portfolio_fraction <= 0.0 || self.max_token1_amount_as_portfolio_fraction > 1.0 {
+        if self.max_token1_amount_as_portfolio_fraction <= 0.0
+            || self.max_token1_amount_as_portfolio_fraction > 1.0
+        {
             return Err(StrategyError::InvalidConfig(
                 "max_token1_amount_as_portfolio_fraction must be in (0, 1]".to_string(),
             ));
         }
-        
+
         if self.rebalance_below_threshold.get() >= self.length_below_mid.get() {
             return Err(StrategyError::InvalidConfig(
                 "rebalance_below_threshold must be strictly less than length_below_mid".to_string(),
@@ -454,10 +459,8 @@ where
             length_above_mid: self.length_above_mid,
             rebalance_below_threshold: self.rebalance_below_threshold,
             rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount_as_portfolio_fraction: self
-                .max_token0_amount_as_portfolio_fraction,
-            max_token1_amount_as_portfolio_fraction: self
-                .max_token1_amount_as_portfolio_fraction,
+            max_token0_amount_as_portfolio_fraction: self.max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction: self.max_token1_amount_as_portfolio_fraction,
             position: self.position.take(),
         };
 
@@ -552,10 +555,8 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             length_above_mid: self.length_above_mid,
             rebalance_below_threshold: self.rebalance_below_threshold,
             rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount_as_portfolio_fraction: self
-                .max_token0_amount_as_portfolio_fraction,
-            max_token1_amount_as_portfolio_fraction: self
-                .max_token1_amount_as_portfolio_fraction,
+            max_token0_amount_as_portfolio_fraction: self.max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction: self.max_token1_amount_as_portfolio_fraction,
             price_source_token0: Some(price_source_token0),
             price_source_token1: self.price_source_token1,
         }
@@ -574,10 +575,8 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             length_above_mid: self.length_above_mid,
             rebalance_below_threshold: self.rebalance_below_threshold,
             rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount_as_portfolio_fraction: self
-                .max_token0_amount_as_portfolio_fraction,
-            max_token1_amount_as_portfolio_fraction: self
-                .max_token1_amount_as_portfolio_fraction,
+            max_token0_amount_as_portfolio_fraction: self.max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction: self.max_token1_amount_as_portfolio_fraction,
             price_source_token0: self.price_source_token0,
             price_source_token1: Some(price_source_token1),
         }
@@ -602,20 +601,20 @@ where
         let rebalance_above_threshold = self.rebalance_above_threshold.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("REBALANCE_ABOVE_THRESHOLD".to_string())
         })?;
-        let max_token0_amount_as_portfolio_fraction =
-            self.max_token0_amount_as_portfolio_fraction
-                .ok_or_else(|| {
-                    UniswapV3Error::RequiredFieldMissing(
-                        "MAX_TOKEN0_AMOUNT_AS_PORTFOLIO_FRACTION".to_string(),
-                    )
-                })?;
-        let max_token1_amount_as_portfolio_fraction =
-            self.max_token1_amount_as_portfolio_fraction
-                .ok_or_else(|| {
-                    UniswapV3Error::RequiredFieldMissing(
-                        "MAX_TOKEN1_AMOUNT_AS_PORTFOLIO_FRACTION".to_string(),
-                    )
-                })?;
+        let max_token0_amount_as_portfolio_fraction = self
+            .max_token0_amount_as_portfolio_fraction
+            .ok_or_else(|| {
+                UniswapV3Error::RequiredFieldMissing(
+                    "MAX_TOKEN0_AMOUNT_AS_PORTFOLIO_FRACTION".to_string(),
+                )
+            })?;
+        let max_token1_amount_as_portfolio_fraction = self
+            .max_token1_amount_as_portfolio_fraction
+            .ok_or_else(|| {
+                UniswapV3Error::RequiredFieldMissing(
+                    "MAX_TOKEN1_AMOUNT_AS_PORTFOLIO_FRACTION".to_string(),
+                )
+            })?;
         let price_source_token0 = self.price_source_token0.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("PRICE_SOURCE_TOKEN0".to_string())
         })?;

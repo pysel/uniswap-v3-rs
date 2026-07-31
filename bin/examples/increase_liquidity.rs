@@ -33,10 +33,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let usdc = USDC::on_chain(chain_id).expect("USDC not deployed on chain");
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
 
-    usdc.approve_unlimited(&client, npm.address())
-        .await?;
-    weth.approve_unlimited(&client, npm.address())
-        .await?;
+    usdc.approve_unlimited(&client, npm.address()).await?;
+    weth.approve_unlimited(&client, npm.address()).await?;
 
     let position = client.get_position(token_id).await?;
     let liquidity_before = position.liquidity(client.provider()).await?;
@@ -51,9 +49,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Match NPM token0/token1 order (address-sorted), not symbol order.
     let (amount0_desired, amount1_desired) = if position.token0() == usdc.address() {
-        (usdc.from_amount(1.0), weth.from_amount(1.0) / U256::from(1_000))
+        (
+            usdc.from_amount(1.0),
+            weth.from_amount(1.0) / U256::from(1_000),
+        )
     } else {
-        (weth.from_amount(1.0) / U256::from(1_000), usdc.from_amount(1.0))
+        (
+            weth.from_amount(1.0) / U256::from(1_000),
+            usdc.from_amount(1.0),
+        )
     };
 
     let params = IncreaseLiquidityParams::builder(&position)

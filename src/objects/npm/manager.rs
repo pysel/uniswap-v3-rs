@@ -250,6 +250,7 @@ impl NonfungiblePositionManager {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create_and_initialize_pool_if_necessary<P: Provider>(
         &self,
         provider: &P,

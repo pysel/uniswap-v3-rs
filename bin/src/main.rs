@@ -58,10 +58,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("pool:  {}", pool.address());
     println!("npm:   {}", npm.address());
 
-    usdc.approve_unlimited(&client, npm.address())
-        .await?;
-    weth.approve_unlimited(&client, npm.address())
-        .await?;
+    usdc.approve_unlimited(&client, npm.address()).await?;
+    weth.approve_unlimited(&client, npm.address()).await?;
     println!("approved USDC + WETH for NPM");
 
     let mut strategy = ConstantWindowStrategy::builder()

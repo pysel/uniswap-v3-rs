@@ -36,10 +36,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("owner: {owner}");
     println!("npm:   {}", npm.address());
 
-    usdc.approve_unlimited(&client, npm.address())
-        .await?;
-    weth.approve_unlimited(&client, npm.address())
-        .await?;
+    usdc.approve_unlimited(&client, npm.address()).await?;
+    weth.approve_unlimited(&client, npm.address()).await?;
     println!("approved USDC + WETH for NPM");
 
     let pool = client.get_pool(usdc.clone(), weth.clone(), FEE).await?;
@@ -50,8 +48,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // token0/token1 are address-sorted; match desired amounts to that order.
     // 1 USDC + 0.001 WETH
-    let (amount0_desired, amount1_desired) =
-        (usdc.from_amount(1.0), weth.from_amount(1.0) / U256::from(1000));
+    let (amount0_desired, amount1_desired) = (
+        usdc.from_amount(1.0),
+        weth.from_amount(1.0) / U256::from(1000),
+    );
 
     let create_position_params = CreatePositionParams::builder(&pool)
         .tick_lower(tick_lower)

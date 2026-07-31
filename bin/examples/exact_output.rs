@@ -33,8 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
     let usdt = USDT::on_chain(chain_id).expect("USDT not deployed on chain");
 
-    usdc.approve_unlimited(&client, router.address())
-        .await?;
+    usdc.approve_unlimited(&client, router.address()).await?;
 
     let slippage = BPS::from_percent(1)?;
 
