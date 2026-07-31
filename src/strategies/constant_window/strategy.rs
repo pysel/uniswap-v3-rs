@@ -103,7 +103,7 @@ where
             ));
         }
 
-        let amount =balance * U256::from(scaled as u128) / U256::from(SCALE);
+        let amount = balance * U256::from(scaled as u128) / U256::from(SCALE);
 
         if amount.is_zero() {
             return Err(StrategyError::InsufficientBalance {
@@ -218,10 +218,18 @@ where
         let token1 = pool.token1();
 
         let balance0 = token0.balance_of(client, owner).await?;
-        let amount0max = Self::amount_from_portfolio_fraction(token0, balance0, self.max_token0_amount_as_portfolio_fraction)?;
+        let amount0max = Self::amount_from_portfolio_fraction(
+            token0,
+            balance0,
+            self.max_token0_amount_as_portfolio_fraction,
+        )?;
 
         let balance1 = token1.balance_of(client, owner).await?;
-        let amount1max = Self::amount_from_portfolio_fraction(token1, balance1, self.max_token1_amount_as_portfolio_fraction)?;
+        let amount1max = Self::amount_from_portfolio_fraction(
+            token1,
+            balance1,
+            self.max_token1_amount_as_portfolio_fraction,
+        )?;
 
         let allowance0 = token0.allowance(client, owner, npm.address()).await?;
         if allowance0 < amount0max {
@@ -423,7 +431,9 @@ where
         client: &UniswapV3Client,
         pool: &Pool,
     ) -> Result<(U256, U256), StrategyError> {
-        let owner = client.signer_address().ok_or(StrategyError::SignerRequired)?;
+        let owner = client
+            .signer_address()
+            .ok_or(StrategyError::SignerRequired)?;
         let token0 = pool.token0();
         let token1 = pool.token1();
 
@@ -745,7 +755,13 @@ mod tests {
     #[test]
     fn amount_from_portfolio_fraction_scales_balance() {
         let balance = U256::from(1_000_000u64);
-        let token = token!(1, "0x0000000000000000000000000000000000000001", 18, "T0", "token0");
+        let token = token!(
+            1,
+            "0x0000000000000000000000000000000000000001",
+            18,
+            "T0",
+            "token0"
+        );
         assert_eq!(
             ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::amount_from_portfolio_fraction(
                 &token, balance, 1.0
