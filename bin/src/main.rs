@@ -10,9 +10,11 @@ use uniswap_v3_rs::{
     strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy},
 };
 
-const FEE: u32 = 500;
-const WINDOW_BPS: BPS = BPS::new(10);
-const REBALANCE_BPS: BPS = BPS::new(5);
+use tracing::info;
+
+const FEE: u32 = 3000;
+const WINDOW_BPS: BPS = BPS::new(100);
+const REBALANCE_BPS: BPS = BPS::new(50);
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -24,13 +26,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .init();
 
-    let rpc_url = env::var("LOCAL_RPC_URL")?;
-    let signer: PrivateKeySigner = env::var("TEST_PRIVATE_KEY")?.parse()?;
+    let rpc_url = env::var("RPC_URL")?;
+    let signer: PrivateKeySigner = env::var("PRIVATE_KEY")?.parse()?;
 
     let client = UniswapV3Client::builder()
         .rpc_url(rpc_url)
         .signer(signer)
-        .gas_multiplier(1.5)
+        .gas_multiplier(1.05)
         .build()
         .await?;
 
@@ -42,36 +44,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .position_manager()
         .expect("no NonfungiblePositionManager for this chain");
 
+    info!("Starting constant-window strategy on chain {}", chain_id);
+
     let usdc = USDC::on_chain(chain_id).expect("USDC not deployed on chain");
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
-    let pool = client.get_pool(usdc.clone(), weth.clone(), FEE).await?;
+    let pool = client.get_pool(weth.clone(), usdc.clone(), FEE).await?;
 
     // Mainnet USDC/WETH sorts as token0=USDC, token1=WETH.
-    assert_eq!(pool.token0().address(), usdc.address());
-    assert_eq!(pool.token1().address(), weth.address());
+    assert_eq!(pool.token0().address(), weth.address());
+    assert_eq!(pool.token1().address(), usdc.address());
 
     println!("owner: {}", owner);
     println!("pool:  {}", pool.address());
     println!("npm:   {}", npm.address());
 
-    usdc.approve_unlimited(client.provider(), npm.address())
+    usdc.approve_unlimited(&client, npm.address())
         .await?;
-    weth.approve_unlimited(client.provider(), npm.address())
+    weth.approve_unlimited(&client, npm.address())
         .await?;
     println!("approved USDC + WETH for NPM");
-
-    let max_token0_amount = usdc.from_amount(5000);
-    let max_token1_amount = weth.from_amount(1);
 
     let mut strategy = ConstantWindowStrategy::builder()
         .length_below_mid(WINDOW_BPS)
         .length_above_mid(WINDOW_BPS)
         .rebalance_below_threshold(REBALANCE_BPS)
         .rebalance_above_threshold(REBALANCE_BPS)
-        .max_token0_amount(max_token0_amount)
-        .max_token1_amount(max_token1_amount)
-        .price_source_token0(StablePriceSource::new())
-        .price_source_token1(BinancePriceSource::new())
+        .max_token0_amount_as_portfolio_fraction(0.95)
+        .max_token1_amount_as_portfolio_fraction(0.95)
+        .price_source_token0(BinancePriceSource::new())
+        .price_source_token1(StablePriceSource::new())
         .build()?;
 
     println!(

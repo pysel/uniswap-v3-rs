@@ -102,7 +102,7 @@ scripts/
 | `NonfungiblePositionManager` | `chain_id`, NPM `address` | Resolves official NPM deployments and submits direct position lifecycle transactions. |
 | `Position` | NPM identity, `token_id`, token addresses, fee, immutable tick range | NFT-backed position identity. Liquidity, owed tokens, owner, and collectable amounts are always fetched from chain. |
 | `Path` | initial token, ordered token/fee hops | Builds and encodes exact-input or reversed exact-output V3 paths. |
-| `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). `TokenExt` also exposes `balance_of` / `allowance` reads plus approvals. |
+| `Token` | from `uniswap-sdk-core` | Foreign type; RPC hydrate via `TokenExt` (orphan-rule extension trait). `TokenExt` reads/approvals take `&UniswapV3Client`. |
 | `USDC` / `USDT` / … | unit structs | Offline `on_chain(chain_id)` registries sourced from Uniswap default-token-list for mainnet/arbitrum/base/avalanche/optimism/polygon/tempo. |
 | `BinancePriceSource` | no fields | Optional Spot `BASEUSDT@bookTicker` source; keeps the latest bid/ask midpoint in a Tokio `watch` channel. |
 | `StablePriceSource` | no fields | Optional constant `1.0` USD source for supported stablecoins via a Tokio `watch` channel. |
@@ -110,7 +110,7 @@ scripts/
 ### Construction paths
 
 1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`, `QuoterV2::from_chain`, `NonfungiblePositionManager::from_chain`
-2. **From chain** — `Pool::from_address`, `Token::from_address` (needs provider); client `get_pool(token_a, token_b, fee)` → factory CREATE2 → `Pool::from_address`
+2. **From chain** — `Pool::from_address`, `Token::from_address` (needs client); client `get_pool(token_a, token_b, fee)` → factory CREATE2 → `Pool::from_address`
 3. **Position NFTs** — client `get_position(token_id)` reads NPM once for immutable NFT metadata. `Position::state`, `Position::liquidity`, `Position::tokens_owed`, and `Position::collectable_amounts` refetch mutable state every call.
 
 Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, fee)), init_code_hash)` with `token0 < token1`. Init-code hash is an internal constant (zkSync uses a different hash / CREATE2 scheme).
@@ -143,12 +143,13 @@ tick centering and rebalance decisions.
 
 1. Hydrate `Pool::from_address` and subscribe both price sources
 2. `pre_run` — close every owner NPM position matching the exact pool key `(token0, token1, fee)`
-3. `validate` — nonzero maxima; each rebalance threshold strictly inside its window length;
-   positive finite prices; wallet balances and existing NPM allowances ≥ both maxima (no auto-approve)
-4. Loop — `None` → `set_position` (mint around external mid using configured maxima);
-   `Some` → `check_position` (hold while mid is within inclusive rebalance thresholds of
-   `open_price`, else `close_position` and clear bookkeeping so the next iteration mints again);
-   after each iteration wait on either price `watch` update
+3. `validate` — portfolio fractions in `(0, 1]`; each rebalance threshold strictly inside its
+   window length; positive finite prices; `balance * fraction > 0` for both tokens and existing
+   NPM allowances ≥ those sized amounts (no auto-approve)
+4. Loop — `None` → `set_position` (mint around external mid using `balance * portfolio_fraction`
+   for each token at mint time); `Some` → `check_position` (hold while mid is within inclusive
+   rebalance thresholds of `open_price`, else `close_position` and clear bookkeeping so the next
+   iteration mints again); after each iteration wait on either price `watch` update
 
 `BinancePriceSource` maps `WETH` to `ETH` and `WBTC` to `BTC`, subscribes to the lowercase
 Spot stream `baseusdt@bookTicker`, waits for the first midpoint, then keeps updating a `watch`

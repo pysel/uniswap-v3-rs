@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
     let usdt = USDT::on_chain(chain_id).expect("USDT not deployed on chain");
 
-    usdc.approve_unlimited(client.provider(), router.address())
+    usdc.approve_unlimited(&client, router.address())
         .await?;
 
     let slippage = BPS::from_percent(1)?;
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let single_quote = client
         .quote_exact_output_single(
             QuoteExactOutputSingleParams::builder(&single_path)
-                .amount_out(weth.from_amount(1) / U256::from(1_000))
+                .amount_out(weth.from_amount(1.0) / U256::from(1_000))
                 .then_default()
                 .build()?,
         )
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let multi_quote = client
         .quote_exact_output(
             QuoteExactOutputParams::builder(&multi_path)
-                .amount_out(usdt.from_amount(1))
+                .amount_out(usdt.from_amount(1.0))
                 .build()?,
         )
         .await?;

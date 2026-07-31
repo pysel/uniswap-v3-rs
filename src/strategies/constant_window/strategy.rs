@@ -39,11 +39,11 @@ pub struct ConstantWindowStrategy<T0, T1> {
     // If mid price moves above rebalance threshold, the position is closed and recreated.
     rebalance_above_threshold: BPS,
 
-    // Max token0 amount to be used in the position.
-    max_token0_amount: U256,
+    // Fraction of wallet token0 balance to use when opening a position, in (0, 1].
+    max_token0_amount_as_portfolio_fraction: f64,
 
-    // Max token1 amount to be used in the position.
-    max_token1_amount: U256,
+    // Fraction of wallet token1 balance to use when opening a position, in (0, 1].
+    max_token1_amount_as_portfolio_fraction: f64,
 
     // Runtime bookkeeping for the active NPM position.
     position: Option<Position>,
@@ -60,8 +60,8 @@ where
         length_above_mid: BPS,
         rebalance_below_threshold: BPS,
         rebalance_above_threshold: BPS,
-        max_token0_amount: U256,
-        max_token1_amount: U256,
+        max_token0_amount_as_portfolio_fraction: f64,
+        max_token1_amount_as_portfolio_fraction: f64,
         price_source_token0: T0,
         price_source_token1: T1,
     ) -> Self {
@@ -70,12 +70,38 @@ where
             length_above_mid,
             rebalance_below_threshold,
             rebalance_above_threshold,
-            max_token0_amount,
-            max_token1_amount,
+            max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction,
             price_source_token0,
             price_source_token1,
             position: None,
         }
+    }
+
+    /// `balance * fraction`, with `fraction` in `(0, 1]`.
+    pub(super) fn amount_from_portfolio_fraction(
+        balance: U256,
+        fraction: f64,
+    ) -> Result<U256, StrategyError> {
+        if !fraction.is_finite() || fraction <= 0.0 || fraction > 1.0 {
+            return Err(StrategyError::InvalidConfig(
+                "portfolio fraction must be finite and in (0, 1]".to_string(),
+            ));
+        }
+        if balance.is_zero() || fraction == 1.0 {
+            return Ok(balance);
+        }
+
+        // Scale with 1e18 fixed-point so typical ERC-20 balances stay exact enough.
+        const SCALE: u128 = 1_000_000_000_000_000_000;
+        let scaled = (fraction * SCALE as f64).round();
+        if !scaled.is_finite() || scaled <= 0.0 || scaled > SCALE as f64 {
+            return Err(StrategyError::InvalidConfig(
+                "portfolio fraction could not be scaled".to_string(),
+            ));
+        }
+
+        Ok(balance * U256::from(scaled as u128) / U256::from(SCALE))
     }
 
     /// Reads the latest token0/token1 USD quotes and returns Uniswap-style mid:
@@ -93,7 +119,7 @@ where
         {
             return Err(StrategyError::InvalidPrice);
         }
-        Ok(price1_usd / price0_usd)
+        Ok(price0_usd / price1_usd)
     }
 
     /// Returns whether an NPM position belongs to the exact pool key.
@@ -141,11 +167,17 @@ where
         price0: &watch::Receiver<f64>,
         price1: &watch::Receiver<f64>,
     ) -> Result<(), StrategyError> {
-        if self.max_token0_amount.is_zero() || self.max_token1_amount.is_zero() {
+        if self.max_token0_amount_as_portfolio_fraction <= 0.0 || self.max_token0_amount_as_portfolio_fraction > 1.0 {
             return Err(StrategyError::InvalidConfig(
-                "max token amounts must be non-zero".to_string(),
+                "max_token0_amount_as_portfolio_fraction must be in (0, 1]".to_string(),
             ));
         }
+        if self.max_token1_amount_as_portfolio_fraction <= 0.0 || self.max_token1_amount_as_portfolio_fraction > 1.0 {
+            return Err(StrategyError::InvalidConfig(
+                "max_token1_amount_as_portfolio_fraction must be in (0, 1]".to_string(),
+            ));
+        }
+        
         if self.rebalance_below_threshold.get() >= self.length_below_mid.get() {
             return Err(StrategyError::InvalidConfig(
                 "rebalance_below_threshold must be strictly less than length_below_mid".to_string(),
@@ -168,40 +200,47 @@ where
 
         let token0 = pool.token0();
         let token1 = pool.token1();
-        let provider = client.provider();
 
-        let balance0 = token0.balance_of(provider, owner).await?;
-        if balance0 < self.max_token0_amount {
+        let balance0 = token0.balance_of(client, owner).await?;
+        let amount0 = Self::amount_from_portfolio_fraction(
+            balance0,
+            self.max_token0_amount_as_portfolio_fraction,
+        )?;
+        if amount0.is_zero() {
             return Err(StrategyError::InsufficientBalance {
                 token: token0.address(),
-                required: self.max_token0_amount,
+                required: U256::from(1),
                 available: balance0,
             });
         }
 
-        let balance1 = token1.balance_of(provider, owner).await?;
-        if balance1 < self.max_token1_amount {
+        let balance1 = token1.balance_of(client, owner).await?;
+        let amount1 = Self::amount_from_portfolio_fraction(
+            balance1,
+            self.max_token1_amount_as_portfolio_fraction,
+        )?;
+        if amount1.is_zero() {
             return Err(StrategyError::InsufficientBalance {
                 token: token1.address(),
-                required: self.max_token1_amount,
+                required: U256::from(1),
                 available: balance1,
             });
         }
 
-        let allowance0 = token0.allowance(provider, owner, npm.address()).await?;
-        if allowance0 < self.max_token0_amount {
+        let allowance0 = token0.allowance(client, owner, npm.address()).await?;
+        if allowance0 < amount0 {
             return Err(StrategyError::InsufficientAllowance {
                 token: token0.address(),
-                required: self.max_token0_amount,
+                required: amount0,
                 available: allowance0,
             });
         }
 
-        let allowance1 = token1.allowance(provider, owner, npm.address()).await?;
-        if allowance1 < self.max_token1_amount {
+        let allowance1 = token1.allowance(client, owner, npm.address()).await?;
+        if allowance1 < amount1 {
             return Err(StrategyError::InsufficientAllowance {
                 token: token1.address(),
-                required: self.max_token1_amount,
+                required: amount1,
                 available: allowance1,
             });
         }
@@ -251,11 +290,38 @@ where
         let (lower_tick, upper_tick) =
             Self::ticks_from_external_mid(pool, mid, self.length_below_mid, self.length_above_mid)?;
 
+        let token0 = pool.token0();
+        let token1 = pool.token1();
+        let balance0 = token0.balance_of(client, owner).await?;
+        let balance1 = token1.balance_of(client, owner).await?;
+        let amount0 = Self::amount_from_portfolio_fraction(
+            balance0,
+            self.max_token0_amount_as_portfolio_fraction,
+        )?;
+        let amount1 = Self::amount_from_portfolio_fraction(
+            balance1,
+            self.max_token1_amount_as_portfolio_fraction,
+        )?;
+        if amount0.is_zero() {
+            return Err(StrategyError::InsufficientBalance {
+                token: token0.address(),
+                required: U256::from(1),
+                available: balance0,
+            });
+        }
+        if amount1.is_zero() {
+            return Err(StrategyError::InsufficientBalance {
+                token: token1.address(),
+                required: U256::from(1),
+                available: balance1,
+            });
+        }
+
         let params = CreatePositionParams::builder(pool)
             .tick_lower(lower_tick)
             .tick_upper(upper_tick)
-            .amount0_desired(self.max_token0_amount)
-            .amount1_desired(self.max_token1_amount)
+            .amount0_desired(amount0)
+            .amount1_desired(amount1)
             .recipient(owner)
             .then_default()
             .build()?;
@@ -268,6 +334,8 @@ where
             open_price = mid,
             lower_tick,
             upper_tick,
+            %amount0,
+            %amount1,
             "constant window position opened"
         );
 
@@ -337,7 +405,7 @@ where
         client: UniswapV3Client,
         pool_address: Address,
     ) -> Result<(), StrategyError> {
-        let pool = Pool::from_address(pool_address, client.provider()).await?;
+        let pool = Pool::from_address(pool_address, &client).await?;
         let mut price0 = self
             .price_source_token0
             .price(pool.token0().clone())
@@ -386,8 +454,10 @@ where
             length_above_mid: self.length_above_mid,
             rebalance_below_threshold: self.rebalance_below_threshold,
             rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount: self.max_token0_amount,
-            max_token1_amount: self.max_token1_amount,
+            max_token0_amount_as_portfolio_fraction: self
+                .max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction: self
+                .max_token1_amount_as_portfolio_fraction,
             position: self.position.take(),
         };
 
@@ -402,8 +472,8 @@ pub struct ConstantWindowStrategyBuilder<T0 = (), T1 = ()> {
     length_above_mid: Option<BPS>,
     rebalance_below_threshold: Option<BPS>,
     rebalance_above_threshold: Option<BPS>,
-    max_token0_amount: Option<U256>,
-    max_token1_amount: Option<U256>,
+    max_token0_amount_as_portfolio_fraction: Option<f64>,
+    max_token1_amount_as_portfolio_fraction: Option<f64>,
     price_source_token0: Option<T0>,
     price_source_token1: Option<T1>,
 }
@@ -416,8 +486,8 @@ impl ConstantWindowStrategy<(), ()> {
             length_above_mid: None,
             rebalance_below_threshold: None,
             rebalance_above_threshold: None,
-            max_token0_amount: None,
-            max_token1_amount: None,
+            max_token0_amount_as_portfolio_fraction: None,
+            max_token1_amount_as_portfolio_fraction: None,
             price_source_token0: None,
             price_source_token1: None,
         }
@@ -450,14 +520,22 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
     }
 
     #[must_use]
-    pub fn max_token0_amount(mut self, max_token0_amount: U256) -> Self {
-        self.max_token0_amount = Some(max_token0_amount);
+    pub fn max_token0_amount_as_portfolio_fraction(
+        mut self,
+        max_token0_amount_as_portfolio_fraction: f64,
+    ) -> Self {
+        self.max_token0_amount_as_portfolio_fraction =
+            Some(max_token0_amount_as_portfolio_fraction);
         self
     }
 
     #[must_use]
-    pub fn max_token1_amount(mut self, max_token1_amount: U256) -> Self {
-        self.max_token1_amount = Some(max_token1_amount);
+    pub fn max_token1_amount_as_portfolio_fraction(
+        mut self,
+        max_token1_amount_as_portfolio_fraction: f64,
+    ) -> Self {
+        self.max_token1_amount_as_portfolio_fraction =
+            Some(max_token1_amount_as_portfolio_fraction);
         self
     }
 
@@ -474,8 +552,10 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             length_above_mid: self.length_above_mid,
             rebalance_below_threshold: self.rebalance_below_threshold,
             rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount: self.max_token0_amount,
-            max_token1_amount: self.max_token1_amount,
+            max_token0_amount_as_portfolio_fraction: self
+                .max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction: self
+                .max_token1_amount_as_portfolio_fraction,
             price_source_token0: Some(price_source_token0),
             price_source_token1: self.price_source_token1,
         }
@@ -494,8 +574,10 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             length_above_mid: self.length_above_mid,
             rebalance_below_threshold: self.rebalance_below_threshold,
             rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount: self.max_token0_amount,
-            max_token1_amount: self.max_token1_amount,
+            max_token0_amount_as_portfolio_fraction: self
+                .max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction: self
+                .max_token1_amount_as_portfolio_fraction,
             price_source_token0: self.price_source_token0,
             price_source_token1: Some(price_source_token1),
         }
@@ -520,12 +602,20 @@ where
         let rebalance_above_threshold = self.rebalance_above_threshold.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("REBALANCE_ABOVE_THRESHOLD".to_string())
         })?;
-        let max_token0_amount = self
-            .max_token0_amount
-            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("MAX_TOKEN0_AMOUNT".to_string()))?;
-        let max_token1_amount = self
-            .max_token1_amount
-            .ok_or_else(|| UniswapV3Error::RequiredFieldMissing("MAX_TOKEN1_AMOUNT".to_string()))?;
+        let max_token0_amount_as_portfolio_fraction =
+            self.max_token0_amount_as_portfolio_fraction
+                .ok_or_else(|| {
+                    UniswapV3Error::RequiredFieldMissing(
+                        "MAX_TOKEN0_AMOUNT_AS_PORTFOLIO_FRACTION".to_string(),
+                    )
+                })?;
+        let max_token1_amount_as_portfolio_fraction =
+            self.max_token1_amount_as_portfolio_fraction
+                .ok_or_else(|| {
+                    UniswapV3Error::RequiredFieldMissing(
+                        "MAX_TOKEN1_AMOUNT_AS_PORTFOLIO_FRACTION".to_string(),
+                    )
+                })?;
         let price_source_token0 = self.price_source_token0.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("PRICE_SOURCE_TOKEN0".to_string())
         })?;
@@ -538,8 +628,8 @@ where
             length_above_mid,
             rebalance_below_threshold,
             rebalance_above_threshold,
-            max_token0_amount,
-            max_token1_amount,
+            max_token0_amount_as_portfolio_fraction,
+            max_token1_amount_as_portfolio_fraction,
             price_source_token0,
             price_source_token1,
         ))
@@ -584,16 +674,16 @@ mod tests {
         length_above: u16,
         rebalance_below: u16,
         rebalance_above: u16,
-        max0: u64,
-        max1: u64,
+        fraction0: f64,
+        fraction1: f64,
     ) -> ConstantWindowStrategy<DummyPriceSource, DummyPriceSource> {
         ConstantWindowStrategy::new(
             BPS::new(length_below),
             BPS::new(length_above),
             BPS::new(rebalance_below),
             BPS::new(rebalance_above),
-            U256::from(max0),
-            U256::from(max1),
+            fraction0,
+            fraction1,
             DummyPriceSource,
             DummyPriceSource,
         )
@@ -652,7 +742,7 @@ mod tests {
 
     #[test]
     fn check_position_bounds_are_inclusive_and_asymmetric() {
-        let strategy = strategy(200, 300, 100, 50, 1, 1);
+        let strategy = strategy(200, 300, 100, 50, 1.0, 1.0);
         let open = 1000.0;
 
         assert!(strategy.check_position_bounds(open, 1000.0));
@@ -660,6 +750,37 @@ mod tests {
         assert!(strategy.check_position_bounds(open, 1005.0)); // exactly +50 bps
         assert!(!strategy.check_position_bounds(open, 989.999));
         assert!(!strategy.check_position_bounds(open, 1005.001));
+    }
+
+    #[test]
+    fn amount_from_portfolio_fraction_scales_balance() {
+        let balance = U256::from(1_000_000u64);
+        assert_eq!(
+            ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::amount_from_portfolio_fraction(
+                balance, 1.0
+            )
+            .unwrap(),
+            balance
+        );
+        assert_eq!(
+            ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::amount_from_portfolio_fraction(
+                balance, 0.5
+            )
+            .unwrap(),
+            U256::from(500_000u64)
+        );
+        assert!(
+            ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::amount_from_portfolio_fraction(
+                balance, 0.0
+            )
+            .is_err()
+        );
+        assert!(
+            ConstantWindowStrategy::<DummyPriceSource, DummyPriceSource>::amount_from_portfolio_fraction(
+                balance, 1.1
+            )
+            .is_err()
+        );
     }
 
     #[test]

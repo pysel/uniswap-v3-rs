@@ -8,7 +8,7 @@ use alloy::{
 use uniswap_sdk_core::prelude::{BaseCurrency, Error, Token};
 use uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick;
 
-use crate::{calltypes::BPS, errors::UniswapV3Error};
+use crate::{calltypes::BPS, client::UniswapV3Client, errors::UniswapV3Error};
 
 use super::{Factory, PoolContract, TokenExt};
 
@@ -56,10 +56,11 @@ impl Pool {
         })
     }
 
-    pub async fn from_address<P: Provider>(
+    pub async fn from_address(
         address: Address,
-        provider: &P,
+        client: &UniswapV3Client,
     ) -> Result<Self, UniswapV3Error> {
+        let provider = client.provider();
         let contract = PoolContract::new(address, provider);
 
         let chain_id = provider
@@ -98,8 +99,8 @@ impl Pool {
 
         let factory = Factory::new(chain_id, factory_address)
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
-        let token0 = Token::from_address(token0_address, chain_id, provider).await?;
-        let token1 = Token::from_address(token1_address, chain_id, provider).await?;
+        let token0 = Token::from_address(token0_address, chain_id, client).await?;
+        let token1 = Token::from_address(token1_address, chain_id, client).await?;
         let pool = Self::new(factory, token0, token1, fee, tick_spacing)
             .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
 

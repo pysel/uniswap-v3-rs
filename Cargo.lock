@@ -4221,6 +4221,7 @@ dependencies = [
  "alloy-primitives",
  "dotenvy",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "uniswap-sdk-core",
  "uniswap-v3-rs",

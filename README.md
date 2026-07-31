@@ -86,7 +86,7 @@ let usdc = USDC::on_chain(chain_id).expect("USDC is not configured for this chai
 let weth = WETH::on_chain(chain_id).expect("WETH is not configured for this chain");
 let router = client.swap_router().expect("no SwapRouter02 for this chain");
 
-usdc.approve_unlimited(client.provider(), router.address()).await?;
+usdc.approve_unlimited(&client, router.address()).await?;
 
 let path = path!(usdc, 500, weth)?;
 let quote = client
@@ -130,8 +130,8 @@ let npm = client
     .position_manager()
     .expect("no NonfungiblePositionManager for this chain");
 
-usdc.approve_unlimited(client.provider(), npm.address()).await?;
-weth.approve_unlimited(client.provider(), npm.address()).await?;
+usdc.approve_unlimited(&client, npm.address()).await?;
+weth.approve_unlimited(&client, npm.address()).await?;
 
 let pool = client.get_pool(usdc.clone(), weth.clone(), 500).await?;
 let (tick_lower, tick_upper) = pool
@@ -140,9 +140,9 @@ let (tick_lower, tick_upper) = pool
 
 // NPM amounts are token0/token1 ordered, not symbol ordered.
 let (amount0, amount1) = if pool.token0().address() == usdc.address() {
-    (usdc.from_amount(1), weth.from_amount(1) / U256::from(1_000))
+    (usdc.from_amount(1.0), weth.from_amount(1.0) / U256::from(1_000))
 } else {
-    (weth.from_amount(1) / U256::from(1_000), usdc.from_amount(1))
+    (weth.from_amount(1.0) / U256::from(1_000), usdc.from_amount(1.0))
 };
 
 let params = CreatePositionParams::builder(&pool)
@@ -175,19 +175,22 @@ The `strategies` feature (on by default) provides shared strategy and price-sour
 `BinancePriceSource` opens a Spot lowercase `baseusdt@bookTicker` stream and keeps the latest
 bid/ask midpoint in a Tokio `watch` channel. `StablePriceSource` exposes a constant `1.0` USD price the
 same way for supported stables. Build a `ConstantWindowStrategy` with BPS window/rebalance
-setters, max token amounts, and `.price_source_token0(...)` / `.price_source_token1(...)`
-(for example Binance + Stable).
+setters, portfolio fractions in `(0, 1]` via
+`.max_token0_amount_as_portfolio_fraction(...)` /
+`.max_token1_amount_as_portfolio_fraction(...)`, and
+`.price_source_token0(...)` / `.price_source_token1(...)` (for example Binance + Stable).
 
 `ConstantWindowStrategy` maintains a concentrated LP position centered on the external
 token0/token1 mid from `price()` (`price0_usd / price1_usd`). On `Strategy::run` it:
 
 1. Hydrates the pool and price feeds
 2. Closes every owner NFT that matches the exact pool key `(token0, token1, fee)`
-3. Validates nonzero maxima, rebalance thresholds strictly inside window lengths, positive
-   prices, wallet balances ≥ both maxima, and existing NPM allowances ≥ both maxima (it never
-   changes approvals)
-4. Loops: open a window when none is tracked; when one is tracked, hold while mid stays within
-   inclusive rebalance thresholds of the open price, otherwise close and reopen on the next mid
+3. Validates portfolio fractions, rebalance thresholds strictly inside window lengths, positive
+   prices, `balance * fraction > 0` for both tokens, and existing NPM allowances ≥ those sized
+   amounts (it never changes approvals)
+4. Loops: open a window when none is tracked (sizing each mint as live `balance * fraction`);
+   when one is tracked, hold while mid stays within inclusive rebalance thresholds of the open
+   price, otherwise close and reopen on the next mid
 
 `Strategy::run` returns the task `JoinHandle<Result<(), StrategyError>>` so callers can await
 failures or abort the handle. Aborting the task does **not** close any live NFT.

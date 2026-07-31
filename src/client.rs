@@ -108,7 +108,7 @@ impl UniswapV3Client {
         token1: Token,
         fee: u32,
     ) -> Result<Pool, UniswapV3Error> {
-        self.factory.pool(token0, token1, fee, &self.provider).await
+        self.factory.pool(token0, token1, fee, self).await
     }
 
     pub async fn get_position(&self, token_id: U256) -> Result<Position, UniswapV3Error> {

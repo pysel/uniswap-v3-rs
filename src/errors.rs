@@ -16,6 +16,8 @@ pub enum UniswapV3Error {
     Core(#[from] uniswap_sdk_core::prelude::Error),
     #[error("math error: {0}")]
     Math(String),
+    #[error("signer required")]
+    SignerRequired,
 }
 
 impl From<uniswap_v3_math::error::UniswapV3MathError> for UniswapV3Error {

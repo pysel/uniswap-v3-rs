@@ -1,13 +1,12 @@
 use alloy::{
     primitives::{Address, B256, aliases::U24, b256, keccak256},
-    providers::Provider,
     sol_types::SolValue,
 };
 use uniswap_sdk_core::prelude::{
     BaseCurrency, ChainId, Error, Token, V3_CORE_FACTORY_ADDRESSES, compute_zksync_create2_address,
 };
 
-use crate::{errors::UniswapV3Error, objects::Pool};
+use crate::{client::UniswapV3Client, errors::UniswapV3Error, objects::Pool};
 
 const POOL_INIT_CODE_HASH: B256 =
     b256!("e34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54");
@@ -63,15 +62,15 @@ impl Factory {
         Ok(self.derive_pool_address(token0, token1, fee))
     }
 
-    pub async fn pool<P: Provider>(
+    pub async fn pool(
         &self,
         token0: Token,
         token1: Token,
         fee: u32,
-        provider: &P,
+        client: &UniswapV3Client,
     ) -> Result<Pool, UniswapV3Error> {
         let address = self.pool_address(&token0, &token1, fee)?;
-        Pool::from_address(address, provider).await
+        Pool::from_address(address, client).await
     }
 
     pub(crate) fn validate_pool_key(
