@@ -14,7 +14,7 @@ decoding, and deployment address lookup from scratch.
 
 ```toml
 [dependencies]
-uniswap-v3-rs = "0.3"
+uniswap-v3-rs = "0.3.1"
 ```
 
 Swap, quote, position, and strategy APIs are available by default. Disable strategies and their
@@ -22,7 +22,7 @@ WebSocket dependencies with `default-features = false` when you only need the co
 
 ```toml
 [dependencies]
-uniswap-v3-rs = { version = "0.3", default-features = false }
+uniswap-v3-rs = { version = "0.3.1", default-features = false }
 ```
 
 Create a client with an Alloy signer:
