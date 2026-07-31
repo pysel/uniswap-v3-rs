@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::sync::watch;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uniswap_sdk_core::prelude::{BaseCurrencyCore, Token};
 
 use crate::strategies::price_source::{PriceSource, PriceSourceError};
@@ -102,6 +102,8 @@ impl PriceSource for BinancePriceSource {
                                 stream = new_stream;
                                 continue;
                             }
+
+                            error!("non-recovered stream error, exiting: {}", error);
 
                             break;
                         }
