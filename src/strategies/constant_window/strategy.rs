@@ -1,6 +1,9 @@
 use alloy::primitives::Address;
 use alloy_primitives::U256;
-use tokio::{sync::watch, task::{AbortHandle, JoinHandle}};
+use tokio::{
+    sync::watch,
+    task::{AbortHandle, JoinHandle},
+};
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
@@ -425,7 +428,9 @@ where
     ) -> Result<(), StrategyError> {
         handle.abort();
 
-        let positions = client.get_positions(client.signer_address().unwrap()).await?;
+        let positions = client
+            .get_positions(client.signer_address().unwrap())
+            .await?;
 
         info!(
             positions = %positions.len(),
@@ -463,10 +468,7 @@ where
 
         loop {
             if self.position.is_some() {
-                call_with_max_retries!(
-                    3,
-                    self.check_position(&client, &price0, &price1).await
-                )?;
+                call_with_max_retries!(3, self.check_position(&client, &price0, &price1).await)?;
             } else {
                 call_with_max_retries!(
                     3,
