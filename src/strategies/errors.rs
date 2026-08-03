@@ -29,6 +29,8 @@ pub enum StrategyError {
     },
     #[error("price source channel closed")]
     PriceSourceClosed,
+    #[error("max retries exceeded: {0}")]
+    MaxRetriesExceeded(#[source] Box<StrategyError>),
     #[error(transparent)]
     PriceSource(#[from] PriceSourceError),
     #[error(transparent)]

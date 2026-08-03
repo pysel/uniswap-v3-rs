@@ -76,17 +76,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "starting constant-window strategy (window={WINDOW_BPS:?} rebalance={REBALANCE_BPS:?})"
     );
-    println!("press Ctrl+C to abort (does not close the live NFT)");
+    println!("press Ctrl+C to abort");
 
-    let handle = strategy.run(client, pool.address())?;
-    let abort = handle.abort_handle();
+    let handle = strategy.run(client.clone(), pool.address())?;
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            abort.abort();
+            strategy.stop(&client, handle.abort_handle()).await?;
             println!("aborted");
             Ok(())
         }
-        result = handle => Ok(result??),
     }
 }

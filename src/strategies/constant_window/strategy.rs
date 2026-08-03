@@ -1,7 +1,7 @@
 use alloy::primitives::Address;
 use alloy_primitives::U256;
-use tokio::{sync::watch, task::JoinHandle};
-use tracing::info;
+use tokio::{sync::watch, task::{AbortHandle, JoinHandle}};
+use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
 use crate::{
@@ -17,6 +17,34 @@ use crate::{
         utils::{apply_bps_above, apply_bps_below},
     },
 };
+
+/// Retries an async expression up to `max_retries` times after the first failure.
+///
+/// Implemented as a macro so the body can borrow locals across `.await` without
+/// hitting `FnMut`/`AsyncFnMut` lifetime/`Send` limits.
+macro_rules! call_with_max_retries {
+    ($max_retries:expr, $body:expr) => {{
+        let max_retries: u32 = $max_retries;
+        let mut attempt = 0u32;
+        loop {
+            match $body {
+                Ok(value) => break Ok(value),
+                Err(error) if attempt == max_retries => {
+                    break Err(StrategyError::MaxRetriesExceeded(Box::new(error)));
+                }
+                Err(error) => {
+                    warn!(
+                        attempt,
+                        max_retries,
+                        error = %error,
+                        "call failed; retrying"
+                    );
+                    attempt += 1;
+                }
+            }
+        }
+    }};
+}
 
 pub struct ConstantWindowStrategy<T0, T1> {
     // Strategy parameters.
@@ -390,6 +418,31 @@ where
         Ok(())
     }
 
+    pub async fn stop(
+        &mut self,
+        client: &UniswapV3Client,
+        handle: AbortHandle,
+    ) -> Result<(), StrategyError> {
+        handle.abort();
+
+        let positions = client.get_positions(client.signer_address().unwrap()).await?;
+
+        info!(
+            positions = %positions.len(),
+            "closing positions"
+        );
+        for position in positions {
+            let params = ClosePositionParams::builder()
+                .recipient(client.signer_address().unwrap())
+                .then_default()
+                .build()?;
+            let response = client.close_position(&position, params).await?;
+            let _ = response.amounts.await?;
+        }
+
+        Ok(())
+    }
+
     async fn run_loop(
         mut self,
         client: UniswapV3Client,
@@ -410,9 +463,15 @@ where
 
         loop {
             if self.position.is_some() {
-                self.check_position(&client, &price0, &price1).await?;
+                call_with_max_retries!(
+                    3,
+                    self.check_position(&client, &price0, &price1).await
+                )?;
             } else {
-                self.set_position(&client, &pool, &price0, &price1).await?;
+                call_with_max_retries!(
+                    3,
+                    self.set_position(&client, &pool, &price0, &price1).await
+                )?;
             }
 
             tokio::select! {
