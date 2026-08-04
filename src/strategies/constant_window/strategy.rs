@@ -453,7 +453,7 @@ where
         client: UniswapV3Client,
         pool_address: Address,
     ) -> Result<(), StrategyError> {
-        let pool = Pool::from_address(pool_address, &client).await?;
+        let mut pool = Pool::from_address(pool_address, &client).await?;
         let mut price0 = self
             .price_source_token0
             .price(pool.token0().clone())
@@ -484,6 +484,9 @@ where
                     result.map_err(|_| StrategyError::PriceSourceClosed)?;
                 }
             }
+
+            // Refresh pool to get latest state
+            pool = Pool::from_address(pool_address, &client).await?;
         }
     }
 
