@@ -24,7 +24,7 @@ decoding, and deployment address lookup from scratch.
 
 ```toml
 [dependencies]
-uniswap-v3-rs = "0.3.1"
+uniswap-v3-rs = "0.3.2"
 ```
 
 Swap, quote, position, and strategy APIs are available by default. Disable strategies and their
@@ -32,7 +32,7 @@ WebSocket dependencies with `default-features = false` when you only need the co
 
 ```toml
 [dependencies]
-uniswap-v3-rs = { version = "0.3.1", default-features = false }
+uniswap-v3-rs = { version = "0.3.2", default-features = false }
 ```
 
 Create a client with an Alloy signer:
@@ -189,8 +189,9 @@ The `strategies` feature (on by default) provides shared strategy and price-sour
 - `ConstantWindowStrategy` — keeps a concentrated LP range centered on an external mid
   (`price0_usd / price1_usd`), rebalancing when that mid drifts beyond configured BPS thresholds.
 
-`Strategy::run` returns a Tokio `JoinHandle<Result<(), StrategyError>>`. Callers can await
-failures or `abort()` the handle. Aborting the task does **not** close any live NFT.
+`Strategy::run` returns `(JoinHandle<Result<(), StrategyError>>, watch::Receiver<Option<Position>>)`.
+Callers can await failures, `abort()` the handle, or observe strategy position bookkeeping.
+Aborting the task does **not** close any live NFT.
 
 ### Constant window LP
 
@@ -248,7 +249,7 @@ let mut strategy = ConstantWindowStrategy::builder()
     .price_source_token1(StablePriceSource::new())  // USDC → 1.0
     .build()?;
 
-let handle = strategy.run(client, pool.address())?;
+let (handle, _position) = strategy.run(client, pool.address())?;
 let abort = handle.abort_handle();
 
 tokio::select! {

@@ -129,8 +129,10 @@ NPM calltypes follow the same builder pattern (`CreatePositionParams`, `Increase
 
 `strategies` is deliberately an interface layer rather than a full strategy runner framework.
 `Strategy::run` takes `&mut self`, a client, and the pool `Address` the strategy should trade,
-spawns a Tokio task, and returns `JoinHandle<Result<(), StrategyError>>` so callers can await
-failures or `abort()` the handle. Aborting the task does not close any live NFT.
+spawns a Tokio task, and returns
+`(JoinHandle<Result<(), StrategyError>>, watch::Receiver<Option<Position>>)` so callers can
+await failures / `abort()` the handle and observe strategy-owned position bookkeeping.
+Aborting the task does not close any live NFT.
 `PriceSource::price` produces a Tokio `watch::Receiver<f64>` holding the latest USD price.
 `ConstantWindowStrategy` is parameterized by separate token0/token1 price sources and tracks a
 runtime `position` (`open_price`, NFT id, ticks) owned by the single run task.
