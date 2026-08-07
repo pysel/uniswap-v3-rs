@@ -3,7 +3,11 @@ use alloy::{
     primitives::Address,
     providers::{DynProvider, Provider, ProviderBuilder},
 };
-use uniswap_sdk_core::entities::Token;
+use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
+use uniswap_v3_math::{
+    sqrt_price_math::{_get_amount_0_delta, _get_amount_1_delta},
+    tick_math::get_sqrt_ratio_at_tick,
+};
 
 use alloy::primitives::U256;
 use alloy::primitives::aliases::U160;
@@ -32,7 +36,7 @@ use crate::{
     },
     objects::{
         CollectParams, CreatePositionParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
-        NonfungiblePositionManager, Position,
+        NonfungiblePositionManager, Position, TokenAmounts,
     },
 };
 
@@ -40,6 +44,7 @@ use crate::{
 pub struct UniswapV3Client {
     rpc_url: String,
     provider: DynProvider,
+    chain_id: u64,
     wallet: Option<EthereumWallet>,
     swap_router: Option<SwapRouter>,
     quoter: Option<QuoterV2>,
@@ -59,6 +64,10 @@ impl UniswapV3Client {
 
     pub fn provider(&self) -> &DynProvider {
         &self.provider
+    }
+
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     pub fn wallet(&self) -> Option<&EthereumWallet> {
@@ -115,6 +124,73 @@ impl UniswapV3Client {
         self.require_position_manager()?
             .position(&self.provider, token_id)
             .await
+    }
+
+    /// Computes the principal token amounts obtainable by burning all current
+    /// liquidity in an NPM position at the pool's current price.
+    ///
+    /// This excludes accrued fees and amounts already owed by the NPM. Use
+    /// [`Position::collectable_amounts`] separately for those amounts.
+    pub async fn compute_current_token_amounts(
+        &self,
+        pool_address: Address,
+        position_id: U256,
+    ) -> Result<TokenAmounts, UniswapV3Error> {
+        let pool = Pool::from_address(pool_address, self).await?;
+        let position = self.get_position(position_id).await?;
+
+        if position.token0() != pool.token0().address()
+            || position.token1() != pool.token1().address()
+            || position.fee() != pool.fee()
+        {
+            return Err(UniswapV3Error::InvalidPool(format!(
+                "position {position_id} does not belong to pool {pool_address}"
+            )));
+        }
+
+        let state = position.state(&self.provider).await?;
+        let sqrt_price_x96 = U256::from(pool.sqrt_price_x96(&self.provider).await?);
+        let sqrt_price_lower_x96 = get_sqrt_ratio_at_tick(position.tick_lower())?;
+        let sqrt_price_upper_x96 = get_sqrt_ratio_at_tick(position.tick_upper())?;
+
+        let (amount0, amount1) = if sqrt_price_x96 <= sqrt_price_lower_x96 {
+            (
+                _get_amount_0_delta(
+                    sqrt_price_lower_x96,
+                    sqrt_price_upper_x96,
+                    state.liquidity,
+                    false,
+                )?,
+                U256::ZERO,
+            )
+        } else if sqrt_price_x96 < sqrt_price_upper_x96 {
+            (
+                _get_amount_0_delta(
+                    sqrt_price_x96,
+                    sqrt_price_upper_x96,
+                    state.liquidity,
+                    false,
+                )?,
+                _get_amount_1_delta(
+                    sqrt_price_lower_x96,
+                    sqrt_price_x96,
+                    state.liquidity,
+                    false,
+                )?,
+            )
+        } else {
+            (
+                U256::ZERO,
+                _get_amount_1_delta(
+                    sqrt_price_lower_x96,
+                    sqrt_price_upper_x96,
+                    state.liquidity,
+                    false,
+                )?,
+            )
+        };
+
+        Ok(TokenAmounts { amount0, amount1 })
     }
 
     pub async fn get_position_count(&self, owner: Address) -> Result<U256, UniswapV3Error> {
@@ -428,9 +504,15 @@ impl UniswapV3ClientBuilder {
         let quoter = QuoterV2::from_chain(chain_id);
         let position_manager = NonfungiblePositionManager::from_chain(chain_id);
 
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .map_err(|error| UniswapV3Error::RpcError(error.to_string()))?;
+
         Ok(UniswapV3Client {
             rpc_url,
             provider,
+            chain_id,
             wallet: self.wallet,
             factory,
             swap_router,

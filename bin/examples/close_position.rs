@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("usage: cargo run -p uniswap-v3-rs-bin --example close_position -- <token_id>")?
         .parse::<U256>()?;
 
-    let rpc_url = env::var("LOCAL_RPC_URL")?;
+    let rpc_url = env::var("RPC_URL")?;
     let signer: PrivateKeySigner = env::var("TEST_PRIVATE_KEY")?.parse()?;
 
     let client = UniswapV3Client::builder()

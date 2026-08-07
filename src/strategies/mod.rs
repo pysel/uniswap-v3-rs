@@ -5,14 +5,19 @@ use crate::client::UniswapV3Client;
 
 mod constant_window;
 mod errors;
+pub mod hedger;
 pub mod position;
 pub mod price_source;
 pub(crate) mod utils;
 
 pub use constant_window::{ConstantWindowStrategy, ConstantWindowStrategyBuilder};
 pub use errors::StrategyError;
+pub use hedger::{
+    HedgeSide, HedgeStatus, Hedger, HedgerError, HyperliquidHedger, HyperliquidHedgerBuilder,
+};
 pub use position::Position;
 pub use price_source::{BinancePriceSource, PriceSource, PriceSourceError, StablePriceSource};
+pub use utils::abort_strategy;
 
 pub type StrategyHandle = JoinHandle<Result<(), StrategyError>>;
 
@@ -20,7 +25,7 @@ pub trait Strategy: Send + 'static {
     /// Spawns the strategy task. The returned handle completes with that task's
     /// [`StrategyError`] when one occurs; callers can also `abort()` the handle.
     fn run(
-        &mut self,
+        self,
         client: UniswapV3Client,
         pool: Address,
     ) -> Result<(StrategyHandle, watch::Receiver<Option<Position>>), StrategyError>;

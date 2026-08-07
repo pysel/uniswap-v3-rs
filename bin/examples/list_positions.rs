@@ -8,7 +8,7 @@ use uniswap_v3_rs::client::UniswapV3Client;
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv()?;
 
-    let rpc_url = env::var("LOCAL_RPC_URL")?;
+    let rpc_url = env::var("RPC_URL")?;
     let signer: PrivateKeySigner = env::var("TEST_PRIVATE_KEY")?.parse()?;
 
     let client = UniswapV3Client::builder()

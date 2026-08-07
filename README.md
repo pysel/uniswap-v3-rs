@@ -177,21 +177,43 @@ println!(
 Position NFTs keep immutable metadata locally—tokens, fee tier, and tick bounds—while mutable values
 such as liquidity, ownership, and owed tokens are fetched from chain when requested. This split has
 worked out nicely in practice: fewer pointless RPC calls, without handing callers stale position
-state.
+state. `UniswapV3Client::compute_current_token_amounts(pool, position_id)` hydrates the pool, reads
+the live position liquidity and pool price, and returns the principal token amounts obtainable by
+burning all liquidity. Accrued fees and already-owed amounts remain available separately through
+`Position::collectable_amounts`.
 
 ## Strategies
 
-The `strategies` feature (on by default) provides shared strategy and price-source interfaces.
+The `strategies` feature (on by default) provides shared strategy, price-source, and hedger interfaces.
 
 - `BinancePriceSource` — Spot lowercase `baseusdt@bookTicker` stream; latest bid/ask midpoint in a
   Tokio `watch` channel (reconnects if the socket drops).
 - `StablePriceSource` — constant `1.0` USD for supported stables via the same `watch` pattern.
 - `ConstantWindowStrategy` — keeps a concentrated LP range centered on an external mid
   (`price0_usd / price1_usd`), rebalancing when that mid drifts beyond configured BPS thresholds.
+- `Hedger` / `HyperliquidHedger` — strategy-agnostic hedge runner that consumes a position
+  `watch` channel and publishes `HedgeStatus` updates.
 
 `Strategy::run` returns `(JoinHandle<Result<(), StrategyError>>, watch::Receiver<Option<Position>>)`.
 Callers can await failures, `abort()` the handle, or observe strategy position bookkeeping.
 Aborting the task does **not** close any live NFT.
+
+### Hedger
+
+`Hedger::hedge` takes a strategy's `watch::Receiver<Option<Position>>` and returns
+`watch::Receiver<HedgeStatus>`. Status values are:
+
+- `HedgeStatus::NoHedge` — no active strategy position / no hedge required
+- `HedgeStatus::Hedged { venue, asset, side, margin, size }` — active hedge bookkeeping
+- `HedgeStatus::Error(HedgerError)` — recoverable/observable failure (for example out of margin)
+
+`HyperliquidHedger` is configured with a `UniswapV3Client` (to read on-chain NPM position state),
+a `PrivateKeySigner`, max leverage (`f64`, finite and strictly positive — the maximum leverage
+the hedger may use), and `rehedge_interval_seconds` (`u64`, strictly positive — how often to
+re-check the position and refresh the hedge). Its asynchronous builder consumes the private key
+to initialize and retain the Hyperliquid `ExchangeClient` and `InfoClient`; there is no public
+constructor. This phase is scaffolding only: it never places hedge orders. An active strategy
+position is reported as `HedgeStatus::Error(HedgerError::NotImplemented)`.
 
 ### Constant window LP
 

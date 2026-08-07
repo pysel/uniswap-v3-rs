@@ -47,6 +47,12 @@ pub trait TokenExt {
     /// negative, non-finite, or overflows the token's decimal scale.
     #[allow(clippy::wrong_self_convention)] // Conversion requires token decimals
     fn from_amount(&self, amount: f64) -> U256;
+
+    /// Returns whether this token's symbol is a known USD stablecoin supported by
+    /// this crate (`USDT`, `USDC`, `DAI`, `USDE`, `USDG`, `USDT0`).
+    ///
+    /// Tokens without a symbol are treated as non-stablecoins.
+    fn is_stablecoin(&self) -> bool;
 }
 
 impl TokenExt for Token {
@@ -134,5 +140,16 @@ impl TokenExt for Token {
         parse_units(&formatted, decimals)
             .expect("token amount overflowed decimal scale")
             .into()
+    }
+
+    fn is_stablecoin(&self) -> bool {
+        self.symbol()
+            .map(|symbol| {
+                matches!(
+                    symbol.to_uppercase().as_str(),
+                    "USDT" | "USDC" | "DAI" | "USDE" | "USDG" | "USDT0"
+                )
+            })
+            .unwrap_or(false)
     }
 }

@@ -14,7 +14,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-: "${LOCAL_RPC_URL:?LOCAL_RPC_URL is required}"
+: "${RPC_URL:?RPC_URL is required}"
 : "${TEST_PRIVATE_KEY:?TEST_PRIVATE_KEY is required}"
 : "${WETH_ADDRESS:?WETH_ADDRESS is required}"
 : "${USDC_ADDRESS:?USDC_ADDRESS is required}"
@@ -24,10 +24,10 @@ set +a
 : "${USDT_HOLDER:?USDT_HOLDER is required}"
 : "${WBTC_HOLDER:?WBTC_HOLDER is required}"
 
-client_version="$(cast rpc --rpc-url "$LOCAL_RPC_URL" web3_clientVersion | tr -d '"')"
+client_version="$(cast rpc --rpc-url "$RPC_URL" web3_clientVersion | tr -d '"')"
 client_version_lower="$(printf '%s' "$client_version" | tr '[:upper:]' '[:lower:]')"
 if [[ "$client_version_lower" != *anvil* ]]; then
-    echo "Refusing to fund a non-Anvil RPC endpoint: $LOCAL_RPC_URL ($client_version)" >&2
+    echo "Refusing to fund a non-Anvil RPC endpoint: $RPC_URL ($client_version)" >&2
     exit 1
 fi
 
@@ -37,7 +37,7 @@ set_eth_balance() {
     local address="$1"
     local amount_wei="$2"
     cast rpc \
-        --rpc-url "$LOCAL_RPC_URL" \
+        --rpc-url "$RPC_URL" \
         anvil_setBalance \
         "$address" \
         "$(cast to-hex "$amount_wei")" >/dev/null
@@ -52,7 +52,7 @@ fund_erc20() {
 
     holder_balance="$(
         cast call \
-            --rpc-url "$LOCAL_RPC_URL" \
+            --rpc-url "$RPC_URL" \
             "$token" \
             "balanceOf(address)(uint256)" \
             "$holder" | awk '{ print $1 }'
@@ -63,12 +63,12 @@ fund_erc20() {
         exit 1
     fi
 
-    cast rpc --rpc-url "$LOCAL_RPC_URL" anvil_impersonateAccount "$holder" >/dev/null
+    cast rpc --rpc-url "$RPC_URL" anvil_impersonateAccount "$holder" >/dev/null
     set_eth_balance "$holder" "$(cast to-wei 100 ether)"
 
     set +e
     cast send \
-        --rpc-url "$LOCAL_RPC_URL" \
+        --rpc-url "$RPC_URL" \
         --unlocked \
         --from "$holder" \
         "$token" \
@@ -78,7 +78,7 @@ fund_erc20() {
     local status=$?
     set -e
 
-    cast rpc --rpc-url "$LOCAL_RPC_URL" anvil_stopImpersonatingAccount "$holder" >/dev/null
+    cast rpc --rpc-url "$RPC_URL" anvil_stopImpersonatingAccount "$holder" >/dev/null
     if (( status != 0 )); then
         echo "Failed to fund $symbol" >&2
         exit "$status"
@@ -90,7 +90,7 @@ fund_erc20() {
 set_eth_balance "$recipient" "$(cast to-wei 10000 ether)"
 
 cast send \
-    --rpc-url "$LOCAL_RPC_URL" \
+    --rpc-url "$RPC_URL" \
     --private-key "$TEST_PRIVATE_KEY" \
     --value "${WETH_AMOUNT_ETH:-1000}ether" \
     "$WETH_ADDRESS" \
@@ -101,4 +101,4 @@ fund_erc20 "USDC" "$USDC_ADDRESS" "$USDC_HOLDER" "${USDC_AMOUNT_RAW:-10000000000
 fund_erc20 "USDT" "$USDT_ADDRESS" "$USDT_HOLDER" "${USDT_AMOUNT_RAW:-1000000000000}"
 fund_erc20 "WBTC" "$WBTC_ADDRESS" "$WBTC_HOLDER" "${WBTC_AMOUNT_RAW:-1000000000}"
 
-echo "Funded $recipient on $LOCAL_RPC_URL"
+echo "Funded $recipient on $RPC_URL"

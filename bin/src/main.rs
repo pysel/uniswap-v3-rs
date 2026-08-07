@@ -4,10 +4,7 @@ use alloy::signers::local::PrivateKeySigner;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use uniswap_v3_rs::{
-    calltypes::BPS,
-    client::UniswapV3Client,
-    objects::{TokenExt, USDC, WETH},
-    strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy},
+    calltypes::BPS, client::UniswapV3Client, objects::{TokenExt, USDC, WETH}, strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy, abort_strategy},
 };
 
 use tracing::info;
@@ -62,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     weth.approve_unlimited(&client, npm.address()).await?;
     println!("approved USDC + WETH for NPM");
 
-    let mut strategy = ConstantWindowStrategy::builder()
+    let strategy = ConstantWindowStrategy::builder()
         .length_below_mid(WINDOW_BPS)
         .length_above_mid(WINDOW_BPS)
         .rebalance_below_threshold(REBALANCE_BPS)
@@ -82,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            strategy.stop(&client, handle.abort_handle()).await?;
+            abort_strategy(&client, handle.abort_handle()).await?;
             println!("aborted");
             Ok(())
         }

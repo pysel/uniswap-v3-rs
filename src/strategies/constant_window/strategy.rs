@@ -356,7 +356,7 @@ where
             "constant window position opened"
         );
 
-        self.position = Some(Position::new(mid, minted.token_id, lower_tick, upper_tick));
+        self.position = Some(Position::new(mid, minted.token_id, pool.address(), client.chain_id(), lower_tick, upper_tick));
         Ok(())
     }
 
@@ -417,35 +417,8 @@ where
         Ok(())
     }
 
-    pub async fn stop(
-        &mut self,
-        client: &UniswapV3Client,
-        handle: AbortHandle,
-    ) -> Result<(), StrategyError> {
-        handle.abort();
-
-        let positions = client
-            .get_positions(client.signer_address().unwrap())
-            .await?;
-
-        info!(
-            positions = %positions.len(),
-            "closing positions"
-        );
-        for position in positions {
-            let params = ClosePositionParams::builder()
-                .recipient(client.signer_address().unwrap())
-                .then_default()
-                .build()?;
-            let response = client.close_position(&position, params).await?;
-            let _ = response.amounts.await?;
-        }
-
-        Ok(())
-    }
-
     async fn run_loop(
-        mut self,
+        &mut self,
         client: UniswapV3Client,
         position_watch_sender: watch::Sender<Option<Position>>,
         pool_address: Address,
@@ -515,26 +488,14 @@ where
     T1: PriceSource + 'static,
 {
     fn run(
-        &mut self,
+        mut self,
         client: UniswapV3Client,
         pool: Address,
     ) -> Result<(StrategyHandle, watch::Receiver<Option<Position>>), StrategyError> {
         let (position_watch_sender, position_watch_receiver) = watch::channel(None);
 
-        let worker = Self {
-            price_source_token0: self.price_source_token0.clone(),
-            price_source_token1: self.price_source_token1.clone(),
-            length_below_mid: self.length_below_mid,
-            length_above_mid: self.length_above_mid,
-            rebalance_below_threshold: self.rebalance_below_threshold,
-            rebalance_above_threshold: self.rebalance_above_threshold,
-            max_token0_amount_as_portfolio_fraction: self.max_token0_amount_as_portfolio_fraction,
-            max_token1_amount_as_portfolio_fraction: self.max_token1_amount_as_portfolio_fraction,
-            position: self.position.take(),
-        };
-
         let handle =
-            tokio::spawn(async move { worker.run_loop(client, position_watch_sender, pool).await });
+            tokio::spawn(async move { self.run_loop(client, position_watch_sender, pool).await });
 
         Ok((handle, position_watch_receiver))
     }

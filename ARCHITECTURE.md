@@ -77,11 +77,18 @@ src/
   strategies/            # optional strategy abstractions (feature-gated)
     mod.rs                # Strategy trait + re-exports
     errors.rs             # StrategyError
+    position.rs           # in-memory open-price / NFT / tick bookkeeping
     utils.rs              # BPS price adjustment helpers
     constant_window/
       mod.rs              # re-exports strategy types
       strategy.rs         # ConstantWindowStrategy + builder + run loop
-      position.rs         # in-memory open-price / NFT / tick bookkeeping
+    hedger/
+      mod.rs              # Hedger trait + re-exports
+      errors.rs           # HedgerError
+      hedge_status.rs     # HedgeStatus / HedgeSide status enum
+      hyperliquid/
+        mod.rs            # re-exports HyperliquidHedger types
+        hedger.rs         # HyperliquidHedger + builder + watch-loop scaffold
     price_source/         # PriceSource, BinancePriceSource, StablePriceSource, PriceSourceError
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
@@ -111,7 +118,7 @@ scripts/
 
 1. **Offline / known metadata** — `token!` / `Token::new`, `Factory::from_chain`, `Pool::new`, `SwapRouter::from_chain`, `QuoterV2::from_chain`, `NonfungiblePositionManager::from_chain`
 2. **From chain** — `Pool::from_address`, `Token::from_address` (needs client); client `get_pool(token_a, token_b, fee)` → factory CREATE2 → `Pool::from_address`
-3. **Position NFTs** — client `get_position(token_id)` reads NPM once for immutable NFT metadata. `Position::state`, `Position::liquidity`, `Position::tokens_owed`, and `Position::collectable_amounts` refetch mutable state every call.
+3. **Position NFTs** — client `get_position(token_id)` reads NPM once for immutable NFT metadata. `Position::state`, `Position::liquidity`, `Position::tokens_owed`, and `Position::collectable_amounts` refetch mutable state every call. `UniswapV3Client::compute_current_token_amounts(pool, token_id)` combines live NPM liquidity, live pool sqrt price, and the position tick range to calculate the principal token amounts obtainable by burning all liquidity; fees and owed amounts are intentionally separate.
 
 Pool address derivation: `CREATE2(factory, keccak256(abi.encode(token0, token1, fee)), init_code_hash)` with `token0 < token1`. Init-code hash is an internal constant (zkSync uses a different hash / CREATE2 scheme).
 
@@ -156,7 +163,22 @@ tick centering and rebalance decisions.
 `BinancePriceSource` maps `WETH` to `ETH` and `WBTC` to `BTC`, subscribes to the lowercase
 Spot stream `baseusdt@bookTicker`, waits for the first midpoint, then keeps updating a `watch`
 channel until the socket, payload parsing, or consumer terminates. Connect and first-tick waits
-are bounded. `StablePriceSource` returns a `watch` seeded at `1.0` for supported USD stables.
+are bounded. `StablePriceSource` returns a `watch` seeded at `1.0` for tokens where
+`TokenExt::is_stablecoin` is true (`USDT`, `USDC`, `DAI`, `USDE`, `USDG`, `USDT0`).
+
+`Hedger` is a parallel observation contract for hedging strategy-owned volatile exposure.
+`Hedger::hedge` takes a strategy's `watch::Receiver<Option<Position>>` (any strategy sharing
+the `Position` bookkeeping type) and returns `watch::Receiver<HedgeStatus>`. `HedgeStatus`
+variants are `NoHedge`, `Hedged { venue, asset, side, margin, size }`, and
+`Error(HedgerError)`. `HyperliquidHedger` stores a `UniswapV3Client` (for on-chain NPM
+position reads), initialized Hyperliquid `ExchangeClient` and `InfoClient` values, max
+leverage (upper bound on hedge leverage), and `rehedge_interval_seconds` (periodic recheck
+cadence). Its asynchronous builder consumes the configured private key when creating the
+exchange client; no public constructor bypasses that initialization. The hedger spawns a Tokio
+task that reacts to position updates or interval ticks and exits when all hedge-status
+receivers are dropped. This scaffold does not place orders: `None` publishes `NoHedge`,
+`Some(_)` publishes `Error(NotImplemented)`, and a closed position input publishes
+`Error(PositionWatchClosed)`.
 
 ## Design rules
 
@@ -168,14 +190,14 @@ are bounded. `StablePriceSource` returns a `watch` seeded at `1.0` for supported
 
 ## Errors
 
-`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures.
+`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures. `HedgerError` lives under `strategies/hedger/errors.rs` and covers missing/invalid configuration, out of margin, closed position input, and not-implemented scaffold failures.
 
 ## Local testing
 
 1. `./scripts/anvil.sh` — fork Ethereum mainnet
 2. `./scripts/fund.sh` — fund the Anvil test account
 3. Run the constant-window strategy or focused examples (each loads `.env` with
-   `LOCAL_RPC_URL`, `TEST_PRIVATE_KEY`):
+   `RPC_URL`, `TEST_PRIVATE_KEY`):
    - `cargo run -p uniswap-v3-rs-bin`
    - `cargo run -p uniswap-v3-rs-bin --example list_positions`
    - `cargo run -p uniswap-v3-rs-bin --example create_position`
