@@ -35,4 +35,6 @@ pub enum StrategyError {
     PriceSource(#[from] PriceSourceError),
     #[error(transparent)]
     UniswapV3(#[from] UniswapV3Error),
+    #[error("position watch channel closed")]
+    PositionWatchClosed,
 }

@@ -8,16 +8,8 @@ use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
 use crate::{
-    calltypes::{BPS, ClosePositionParams, CreatePositionParams},
-    client::UniswapV3Client,
-    errors::UniswapV3Error,
-    objects::{Pool, Position as NpmPosition, TokenExt},
-    strategies::{
-        Strategy,
-        constant_window::position::Position,
-        errors::StrategyError,
-        price_source::PriceSource,
-        utils::{apply_bps_above, apply_bps_below},
+    calltypes::{BPS, ClosePositionParams, CreatePositionParams}, client::UniswapV3Client, errors::UniswapV3Error, objects::{Pool, Position as NpmPosition, TokenExt}, strategies::{
+        Strategy, StrategyHandle, Position, errors::StrategyError, price_source::PriceSource, utils::{apply_bps_above, apply_bps_below},
     },
 };
 
@@ -451,6 +443,7 @@ where
     async fn run_loop(
         mut self,
         client: UniswapV3Client,
+        position_watch_sender: watch::Sender<Option<Position>>,
         pool_address: Address,
     ) -> Result<(), StrategyError> {
         let mut pool = Pool::from_address(pool_address, &client).await?;
@@ -475,6 +468,10 @@ where
                     self.set_position(&client, &pool, &price0, &price1).await
                 )?;
             }
+
+            // Send current position to watch channel
+            position_watch_sender.send(self.position.clone())
+                .map_err(|_| StrategyError::PositionWatchClosed)?;
 
             tokio::select! {
                 result = price0.changed() => {
@@ -516,7 +513,9 @@ where
         &mut self,
         client: UniswapV3Client,
         pool: Address,
-    ) -> Result<JoinHandle<Result<(), StrategyError>>, StrategyError> {
+    ) -> Result<(StrategyHandle, watch::Receiver<Option<Position>>), StrategyError> {
+        let (position_watch_sender, position_watch_receiver) = watch::channel(None);
+
         let worker = Self {
             price_source_token0: self.price_source_token0.clone(),
             price_source_token1: self.price_source_token1.clone(),
@@ -529,9 +528,11 @@ where
             position: self.position.take(),
         };
 
-        Ok(tokio::spawn(
-            async move { worker.run_loop(client, pool).await },
-        ))
+        let handle = tokio::spawn(
+            async move { worker.run_loop(client, position_watch_sender, pool).await },
+        );
+
+        Ok((handle, position_watch_receiver))
     }
 }
 

@@ -67,8 +67,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .length_above_mid(WINDOW_BPS)
         .rebalance_below_threshold(REBALANCE_BPS)
         .rebalance_above_threshold(REBALANCE_BPS)
-        .max_token0_amount_as_portfolio_fraction(0.95)
-        .max_token1_amount_as_portfolio_fraction(0.95)
+        .max_token0_amount_as_portfolio_fraction(1.0)
+        .max_token1_amount_as_portfolio_fraction(1.0)
         .price_source_token0(BinancePriceSource::new())
         .price_source_token1(StablePriceSource::new())
         .build()?;
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("press Ctrl+C to abort");
 
-    let handle = strategy.run(client.clone(), pool.address())?;
+    let (handle, _position) = strategy.run(client.clone(), pool.address())?;
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
