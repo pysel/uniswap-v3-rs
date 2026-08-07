@@ -2,14 +2,21 @@ use alloy::primitives::Address;
 use alloy_primitives::U256;
 use tokio::{
     sync::watch,
-    task::{AbortHandle, JoinHandle},
+    task::AbortHandle,
 };
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
 use crate::{
-    calltypes::{BPS, ClosePositionParams, CreatePositionParams}, client::UniswapV3Client, errors::UniswapV3Error, objects::{Pool, Position as NpmPosition, TokenExt}, strategies::{
-        Strategy, StrategyHandle, Position, errors::StrategyError, price_source::PriceSource, utils::{apply_bps_above, apply_bps_below},
+    calltypes::{BPS, ClosePositionParams, CreatePositionParams},
+    client::UniswapV3Client,
+    errors::UniswapV3Error,
+    objects::{Pool, Position as NpmPosition, TokenExt},
+    strategies::{
+        Position, Strategy, StrategyHandle,
+        errors::StrategyError,
+        price_source::PriceSource,
+        utils::{apply_bps_above, apply_bps_below},
     },
 };
 
@@ -470,7 +477,8 @@ where
             }
 
             // Send current position to watch channel
-            position_watch_sender.send(self.position.clone())
+            position_watch_sender
+                .send(self.position)
                 .map_err(|_| StrategyError::PositionWatchClosed)?;
 
             tokio::select! {
@@ -528,9 +536,8 @@ where
             position: self.position.take(),
         };
 
-        let handle = tokio::spawn(
-            async move { worker.run_loop(client, position_watch_sender, pool).await },
-        );
+        let handle =
+            tokio::spawn(async move { worker.run_loop(client, position_watch_sender, pool).await });
 
         Ok((handle, position_watch_receiver))
     }

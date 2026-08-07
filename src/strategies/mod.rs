@@ -1,18 +1,18 @@
 use alloy::primitives::Address;
 use tokio::{sync::watch, task::JoinHandle};
 
-use crate::{client::UniswapV3Client};
+use crate::client::UniswapV3Client;
 
 mod constant_window;
 mod errors;
+pub mod position;
 pub mod price_source;
 pub(crate) mod utils;
-pub mod position;
 
 pub use constant_window::{ConstantWindowStrategy, ConstantWindowStrategyBuilder};
 pub use errors::StrategyError;
-pub use price_source::{BinancePriceSource, PriceSource, PriceSourceError, StablePriceSource};
 pub use position::Position;
+pub use price_source::{BinancePriceSource, PriceSource, PriceSourceError, StablePriceSource};
 
 pub type StrategyHandle = JoinHandle<Result<(), StrategyError>>;
 
