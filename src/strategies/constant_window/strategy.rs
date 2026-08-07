@@ -1,9 +1,6 @@
 use alloy::primitives::Address;
 use alloy_primitives::U256;
-use tokio::{
-    sync::watch,
-    task::AbortHandle,
-};
+use tokio::{sync::watch, task::AbortHandle};
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
