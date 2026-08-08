@@ -1,7 +1,10 @@
 use std::future::Future;
 
 use tokio::sync::watch;
-use uniswap_sdk_core::{entities::BaseCurrency, prelude::{BaseCurrencyCore, Token}};
+use uniswap_sdk_core::{
+    entities::BaseCurrency,
+    prelude::{BaseCurrencyCore, Token},
+};
 
 use crate::{
     objects::TokenExt,
@@ -27,7 +30,12 @@ impl PriceSource for StablePriceSource {
     ) -> impl Future<Output = Result<watch::Receiver<f64>, PriceSourceError>> + Send {
         async move {
             if !token.is_stablecoin() {
-                return Err(PriceSourceError::UnsupportedToken(token.symbol().unwrap_or(&token.address().to_string()).to_owned()));
+                return Err(PriceSourceError::UnsupportedToken(
+                    token
+                        .symbol()
+                        .unwrap_or(&token.address().to_string())
+                        .to_owned(),
+                ));
             }
 
             let (tx, rx) = watch::channel(1.0);

@@ -4,7 +4,13 @@ use alloy::signers::local::PrivateKeySigner;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use uniswap_v3_rs::{
-    calltypes::BPS, client::UniswapV3Client, objects::{TokenExt, USDC, WETH}, strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy, abort_strategy},
+    calltypes::BPS,
+    client::UniswapV3Client,
+    objects::{TokenExt, USDC, WETH},
+    strategies::{
+        BaseUrl, BinancePriceSource, ConstantWindowStrategy, Hedger, HyperliquidHedger,
+        StablePriceSource, Strategy, abort_strategy,
+    },
 };
 
 use tracing::info;
@@ -12,6 +18,8 @@ use tracing::info;
 const FEE: u32 = 3000;
 const WINDOW_BPS: BPS = BPS::new(100);
 const REBALANCE_BPS: BPS = BPS::new(50);
+const MAX_HEDGE_LEVERAGE: f64 = 3.0;
+const REHEDGE_INTERVAL_SECONDS: u64 = 60;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -24,7 +32,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let rpc_url = env::var("RPC_URL")?;
-    let signer: PrivateKeySigner = env::var("PRIVATE_KEY")?.parse()?;
+    let private_key = env::var("PRIVATE_KEY")?;
+    let signer: PrivateKeySigner = private_key.parse()?;
+
+    let hedger_private_key = env::var("HEDGER_PRIVATE_KEY")?;
+    let hedge_signer: PrivateKeySigner = hedger_private_key.parse()?;
 
     let client = UniswapV3Client::builder()
         .rpc_url(rpc_url)
@@ -73,15 +85,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "starting constant-window strategy (window={WINDOW_BPS:?} rebalance={REBALANCE_BPS:?})"
     );
+
+    let (mut handle, position_rx) = strategy.run(client.clone(), pool.address())?;
+
+    let hedger_address = hedge_signer.address();
+    let hedger = HyperliquidHedger::builder()
+        .client(client.clone())
+        .private_key(hedge_signer)
+        .position(position_rx)
+        .base_url(BaseUrl::Testnet)
+        .max_leverage(MAX_HEDGE_LEVERAGE)
+        .rehedge_interval_seconds(REHEDGE_INTERVAL_SECONDS)
+        .build()
+        .await?;
+
+    let mut hedge_rx = hedger.hedge()?;
+    info!(
+        %hedger_address,
+        max_leverage = MAX_HEDGE_LEVERAGE,
+        rehedge_interval_seconds = REHEDGE_INTERVAL_SECONDS,
+        "started Hyperliquid testnet hedger"
+    );
+    println!("hedger: {hedger_address}");
     println!("press Ctrl+C to abort");
 
-    let (handle, _position) = strategy.run(client.clone(), pool.address())?;
-
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            abort_strategy(&client, handle.abort_handle()).await?;
-            println!("aborted");
-            Ok(())
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                abort_strategy(&client, handle.abort_handle()).await?;
+                println!("aborted");
+                return Ok(());
+            }
+            changed = hedge_rx.changed() => {
+                changed?;
+                let status = hedge_rx.borrow_and_update().clone();
+                info!(?status, "hedge status");
+            }
+            result = &mut handle => {
+                result??;
+                return Ok(());
+            }
         }
     }
 }

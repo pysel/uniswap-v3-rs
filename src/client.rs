@@ -165,18 +165,8 @@ impl UniswapV3Client {
             )
         } else if sqrt_price_x96 < sqrt_price_upper_x96 {
             (
-                _get_amount_0_delta(
-                    sqrt_price_x96,
-                    sqrt_price_upper_x96,
-                    state.liquidity,
-                    false,
-                )?,
-                _get_amount_1_delta(
-                    sqrt_price_lower_x96,
-                    sqrt_price_x96,
-                    state.liquidity,
-                    false,
-                )?,
+                _get_amount_0_delta(sqrt_price_x96, sqrt_price_upper_x96, state.liquidity, false)?,
+                _get_amount_1_delta(sqrt_price_lower_x96, sqrt_price_x96, state.liquidity, false)?,
             )
         } else {
             (

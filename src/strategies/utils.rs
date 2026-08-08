@@ -2,8 +2,8 @@ use tokio::task::AbortHandle;
 use tracing::info;
 
 use crate::calltypes::ClosePositionParams;
-use crate::{calltypes::BPS, client::UniswapV3Client};
 use crate::strategies::StrategyError;
+use crate::{calltypes::BPS, client::UniswapV3Client};
 
 pub(crate) fn apply_bps_below(price: f64, bps: BPS) -> f64 {
     price * (1.0 - f64::from(bps.get()) / f64::from(BPS::denominator()))

@@ -6089,6 +6089,7 @@ version = "0.3.2"
 dependencies = [
  "alloy",
  "alloy-primitives",
+ "ethers-signers",
  "futures-util",
  "hyperliquid_rust_sdk",
  "serde",

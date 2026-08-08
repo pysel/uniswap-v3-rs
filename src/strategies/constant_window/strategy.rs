@@ -1,6 +1,6 @@
 use alloy::primitives::Address;
 use alloy_primitives::U256;
-use tokio::{sync::watch, task::AbortHandle};
+use tokio::sync::watch;
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
@@ -356,7 +356,14 @@ where
             "constant window position opened"
         );
 
-        self.position = Some(Position::new(mid, minted.token_id, pool.address(), client.chain_id(), lower_tick, upper_tick));
+        self.position = Some(Position::new(
+            mid,
+            minted.token_id,
+            pool.address(),
+            client.chain_id(),
+            lower_tick,
+            upper_tick,
+        ));
         Ok(())
     }
 
@@ -444,12 +451,12 @@ where
                     3,
                     self.set_position(&client, &pool, &price0, &price1).await
                 )?;
-            }
 
-            // Send current position to watch channel
-            position_watch_sender
-                .send(self.position)
-                .map_err(|_| StrategyError::PositionWatchClosed)?;
+                // Send current position to watch channel
+                position_watch_sender
+                    .send(self.position)
+                    .map_err(|_| StrategyError::PositionWatchClosed)?;
+            }
 
             tokio::select! {
                 result = price0.changed() => {

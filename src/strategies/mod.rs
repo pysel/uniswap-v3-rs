@@ -13,7 +13,8 @@ pub(crate) mod utils;
 pub use constant_window::{ConstantWindowStrategy, ConstantWindowStrategyBuilder};
 pub use errors::StrategyError;
 pub use hedger::{
-    HedgeSide, HedgeStatus, Hedger, HedgerError, HyperliquidHedger, HyperliquidHedgerBuilder,
+    BaseUrl, Hedge, HedgeSide, HedgeStatus, Hedger, HedgerError, HyperliquidHedger,
+    HyperliquidHedgerBuilder,
 };
 pub use position::Position;
 pub use price_source::{BinancePriceSource, PriceSource, PriceSourceError, StablePriceSource};

@@ -200,20 +200,44 @@ Aborting the task does **not** close any live NFT.
 
 ### Hedger
 
-`Hedger::hedge` takes a strategy's `watch::Receiver<Option<Position>>` and returns
-`watch::Receiver<HedgeStatus>`. Status values are:
+`HyperliquidHedgerBuilder::position` takes the strategy's
+`watch::Receiver<Option<Position>>`; `Hedger::hedge()` starts the task and returns
+`watch::Receiver<HedgeStatus>`. The hedger stores the current status internally,
+seeded idle (`token0_hedge`/`token1_hedge`/`error` all empty). `HedgeStatus` is a struct:
 
-- `HedgeStatus::NoHedge` — no active strategy position / no hedge required
-- `HedgeStatus::Hedged { venue, asset, side, margin, size }` — active hedge bookkeeping
-- `HedgeStatus::Error(HedgerError)` — recoverable/observable failure (for example out of margin)
+- idle — no legs and `error: None`
+- hedged — optional per-token [`Hedge`] legs with `error: None`
+- errored — `error: Some(...)` plus the last known legs needed for cleanup
+
+Each `Hedge` leg records `venue`, `asset`, `side`, `margin`, `size`, and cumulative
+`fees_paid`. Units: `size` is Hyperliquid base size in the source ERC-20's raw decimals;
+`margin` and `fees_paid` are USD/USDC at 6-decimal atomic precision.
 
 `HyperliquidHedger` is configured with a `UniswapV3Client` (to read on-chain NPM position state),
-a `PrivateKeySigner`, max leverage (`f64`, finite and strictly positive — the maximum leverage
-the hedger may use), and `rehedge_interval_seconds` (`u64`, strictly positive — how often to
+a `PrivateKeySigner`, optional Hyperliquid [`BaseUrl`] (defaults to mainnet; use `BaseUrl::Testnet`
+for testnet), max leverage (`f64`, finite and strictly positive — the maximum leverage
+ratio the hedger may use), and `rehedge_interval_seconds` (`u64`, strictly positive — how often to
 re-check the position and refresh the hedge). Its asynchronous builder consumes the private key
 to initialize and retain the Hyperliquid `ExchangeClient` and `InfoClient`; there is no public
-constructor. This phase is scaffolding only: it never places hedge orders. An active strategy
-position is reported as `HedgeStatus::Error(HedgerError::NotImplemented)`.
+constructor.
+
+On each position update or interval tick the hedger:
+
+1. Loads pool token0/token1 and principal amounts via `compute_current_token_amounts`
+   (excludes collectable fees/owed balances)
+2. Skips stablecoins (`TokenExt::is_stablecoin`); maps `WETH→ETH`, `WBTC→BTC`, else uppercase
+3. Runs `pre_run` before opening from an idle status to close existing Hyperliquid perps for those
+   volatile assets
+4. Sequentially hedges token0 then token1 as shorts, deriving leverage from
+   `target_notional / (withdrawable + leg_margin_used)` and erroring when that ratio exceeds
+   `max_leverage` (or the venue max)
+5. Rebalances only when `|target - actual| > target * user_cross_rate`; at most one adjustment
+   per token per cycle
+6. Estimates taker fees as `filled_size * avg_px * user_cross_rate` and accumulates them on the leg
+
+When the Uniswap position becomes `None`, or after a status with `error: Some(...)`, the next
+cycle closes the legs retained in `HedgeStatus` before publishing idle (retrying cleanup on later
+interval ticks if a close fails).
 
 ### Constant window LP
 

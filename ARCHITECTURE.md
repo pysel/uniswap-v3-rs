@@ -12,7 +12,7 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| `strategies` | yes | Enables strategy interfaces, Binance/Stable price streams, and `tracing` logs. |
+| `strategies` | yes | Enables strategy interfaces, Binance/Stable price streams, Hyperliquid hedger (`hyperliquid_rust_sdk` + its `ethers-signers` wallet API), and `tracing` logs. |
 
 SwapRouter02, QuoterV2, and NPM APIs are always compiled.
 
@@ -85,10 +85,11 @@ src/
     hedger/
       mod.rs              # Hedger trait + re-exports
       errors.rs           # HedgerError
-      hedge_status.rs     # HedgeStatus / HedgeSide status enum
+      hedge_status.rs     # Hedge / HedgeStatus / HedgeSide
+      utils.rs            # raw/human and USD atomic conversion helpers
       hyperliquid/
         mod.rs            # re-exports HyperliquidHedger types
-        hedger.rs         # HyperliquidHedger + builder + watch-loop scaffold
+        hedger.rs         # HyperliquidHedger + builder + short-hedge state machine
     price_source/         # PriceSource, BinancePriceSource, StablePriceSource, PriceSourceError
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
@@ -167,18 +168,40 @@ are bounded. `StablePriceSource` returns a `watch` seeded at `1.0` for tokens wh
 `TokenExt::is_stablecoin` is true (`USDT`, `USDC`, `DAI`, `USDE`, `USDG`, `USDT0`).
 
 `Hedger` is a parallel observation contract for hedging strategy-owned volatile exposure.
-`Hedger::hedge` takes a strategy's `watch::Receiver<Option<Position>>` (any strategy sharing
-the `Position` bookkeeping type) and returns `watch::Receiver<HedgeStatus>`. `HedgeStatus`
-variants are `NoHedge`, `Hedged { venue, asset, side, margin, size }`, and
-`Error(HedgerError)`. `HyperliquidHedger` stores a `UniswapV3Client` (for on-chain NPM
-position reads), initialized Hyperliquid `ExchangeClient` and `InfoClient` values, max
-leverage (upper bound on hedge leverage), and `rehedge_interval_seconds` (periodic recheck
-cadence). Its asynchronous builder consumes the configured private key when creating the
-exchange client; no public constructor bypasses that initialization. The hedger spawns a Tokio
-task that reacts to position updates or interval ticks and exits when all hedge-status
-receivers are dropped. This scaffold does not place orders: `None` publishes `NoHedge`,
-`Some(_)` publishes `Error(NotImplemented)`, and a closed position input publishes
-`Error(PositionWatchClosed)`.
+`HyperliquidHedgerBuilder::position` takes a strategy's
+`watch::Receiver<Option<Position>>` (any strategy sharing the `Position` bookkeeping type);
+`Hedger::hedge()` starts the task and returns `watch::Receiver<HedgeStatus>`. The hedger owns
+the position receiver and a status sender seeded idle, making current hedge state
+persistent on the hedger itself. `HedgeStatus` is a struct with optional `token0_hedge` /
+`token1_hedge` legs and optional `error`. Keeping the last known legs on errors lets
+cleanup derive managed assets entirely from status rather than separate pair bookkeeping.
+A `Hedge` stores venue/asset/side plus `size` (ERC-20 raw units), and `margin` /
+`fees_paid` (USD/USDC at 6-decimal atomic precision).
+
+`HyperliquidHedger` stores a `UniswapV3Client` (for on-chain NPM position reads), initialized
+Hyperliquid `ExchangeClient` and `InfoClient` values, max leverage (upper bound on the
+exact notional/collateral ratio), and `rehedge_interval_seconds` (periodic recheck cadence).
+Its asynchronous builder accepts an optional Hyperliquid `BaseUrl` (default mainnet; pass
+`BaseUrl::Testnet` for testnet), consumes the configured private key when creating the exchange
+client, and has no public constructor that bypasses that initialization. The hedger spawns a Tokio task
+that reacts to position updates or interval ticks and exits when all hedge-status receivers
+are dropped.
+
+Lifecycle per cycle:
+
+1. Resolve pool tokens and principal `TokenAmounts` via
+   `UniswapV3Client::compute_current_token_amounts` (fees/owed excluded)
+2. Skip stablecoins; map Uniswap symbols to Hyperliquid coins (`WETH→ETH`, `WBTC→BTC`)
+3. `pre_run` before opening from idle status closes existing Hyperliquid perps for those
+   volatile assets
+4. Sequentially `hedge` token0 then token1 as shorts. Required leverage is
+   `target_notional / (withdrawable + leg_margin_used)`; exceeding configured or venue max
+   publishes `error: Some(...)` (`OutOfMargin` / `VenueLeverageExceeded`) without placing the increase
+5. Rebalance only when base-size drift exceeds `target * user_cross_rate`; one adjustment per
+   token per cycle. Taker fees are estimated from fills and accumulated on the leg
+6. `None` position or a prior errored status triggers cleanup of legs retained in status before idle;
+   failed closes publish `CleanupFailed` and retry on later ticks. A closed position watch is
+   treated as terminal absence and ends with `Stopped` / `StoppedCleanupFailed` after cleanup
 
 ## Design rules
 
@@ -190,7 +213,7 @@ receivers are dropped. This scaffold does not place orders: `None` publishes `No
 
 ## Errors
 
-`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures. `HedgerError` lives under `strategies/hedger/errors.rs` and covers missing/invalid configuration, out of margin, closed position input, and not-implemented scaffold failures.
+`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures. `HedgerError` lives under `strategies/hedger/errors.rs` and covers missing/invalid configuration, Uniswap/Hyperliquid read failures, unsupported assets, numeric conversion, out of margin, venue leverage limits, order/cleanup failures, unexpected longs, and closed position input.
 
 ## Local testing
 
