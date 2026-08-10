@@ -446,6 +446,13 @@ where
         loop {
             if self.position.is_some() {
                 call_with_max_retries!(3, self.check_position(&client, &price0, &price1).await)?;
+
+                // position got closed, send None to watch channel
+                if let None = self.position {
+                    position_watch_sender
+                        .send(None)
+                        .map_err(|_| StrategyError::PositionWatchClosed)?;
+                }
             } else {
                 call_with_max_retries!(
                     3,

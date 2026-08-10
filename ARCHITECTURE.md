@@ -180,7 +180,8 @@ A `Hedge` stores venue/asset/side plus `size` (ERC-20 raw units), and `margin` /
 
 `HyperliquidHedger` stores a `UniswapV3Client` (for on-chain NPM position reads), initialized
 Hyperliquid `ExchangeClient` and `InfoClient` values, max leverage (upper bound on the
-exact notional/collateral ratio), and `rehedge_interval_seconds` (periodic recheck cadence).
+exact notional/collateral ratio), market-order `slippage` (fraction of mid bounding IOC fill
+prices, default `0.01`), and `rehedge_interval_seconds` (periodic recheck cadence).
 Its asynchronous builder accepts an optional Hyperliquid `BaseUrl` (default mainnet; pass
 `BaseUrl::Testnet` for testnet), consumes the configured private key when creating the exchange
 client, and has no public constructor that bypasses that initialization. The hedger spawns a Tokio task
@@ -197,8 +198,9 @@ Lifecycle per cycle:
 4. Sequentially `hedge` token0 then token1 as shorts. Required leverage is
    `target_notional / (withdrawable + leg_margin_used)`; exceeding configured or venue max
    publishes `error: Some(...)` (`OutOfMargin` / `VenueLeverageExceeded`) without placing the increase
-5. Rebalance only when base-size drift exceeds `target * user_cross_rate`; one adjustment per
-   token per cycle. Taker fees are estimated from fills and accumulated on the leg
+5. Rebalance only when base-size drift exceeds the larger of `target * user_cross_rate` and
+   the venue $10 minimum order value at mid; zero targets always close in full. One adjustment
+   per token per cycle. Taker fees are estimated from fills and accumulated on the leg
 6. `None` position or a prior errored status triggers cleanup of legs retained in status before idle;
    failed closes publish `CleanupFailed` and retry on later ticks. A closed position watch is
    treated as terminal absence and ends with `Stopped` / `StoppedCleanupFailed` after cleanup

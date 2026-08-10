@@ -217,8 +217,10 @@ Each `Hedge` leg records `venue`, `asset`, `side`, `margin`, `size`, and cumulat
 `HyperliquidHedger` is configured with a `UniswapV3Client` (to read on-chain NPM position state),
 a `PrivateKeySigner`, optional Hyperliquid [`BaseUrl`] (defaults to mainnet; use `BaseUrl::Testnet`
 for testnet), max leverage (`f64`, finite and strictly positive — the maximum leverage
-ratio the hedger may use), and `rehedge_interval_seconds` (`u64`, strictly positive — how often to
-re-check the position and refresh the hedge). Its asynchronous builder consumes the private key
+ratio the hedger may use), optional `slippage` (`f64` fraction of mid strictly between 0 and 1,
+default `0.01` — bounds market-order fill prices), and `rehedge_interval_seconds` (`u64`, strictly
+positive — how often to re-check the position and refresh the hedge). Its asynchronous builder
+consumes the private key
 to initialize and retain the Hyperliquid `ExchangeClient` and `InfoClient`; there is no public
 constructor.
 
@@ -232,8 +234,9 @@ On each position update or interval tick the hedger:
 4. Sequentially hedges token0 then token1 as shorts, deriving leverage from
    `target_notional / (withdrawable + leg_margin_used)` and erroring when that ratio exceeds
    `max_leverage` (or the venue max)
-5. Rebalances only when `|target - actual| > target * user_cross_rate`; at most one adjustment
-   per token per cycle
+5. Rebalances only when `|target - actual| > max(target * user_cross_rate, $10 / mid)` —
+   Hyperliquid rejects orders below $10 notional; zero targets close the short in full. At most
+   one adjustment per token per cycle
 6. Estimates taker fees as `filled_size * avg_px * user_cross_rate` and accumulates them on the leg
 
 When the Uniswap position becomes `None`, or after a status with `error: Some(...)`, the next

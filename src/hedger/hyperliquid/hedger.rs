@@ -23,6 +23,12 @@ use crate::{
 
 const VENUE: &str = "hyperliquid";
 
+/// Hyperliquid rejects orders whose notional value is below this USD amount.
+const MIN_ORDER_NOTIONAL_USD: f64 = 10.0;
+
+/// Default cap on market-order slippage, as a fraction of the mid price.
+const DEFAULT_SLIPPAGE: f64 = 0.01;
+
 /// Hyperliquid venue hedger.
 ///
 /// Watches a strategy position channel, reads live Uniswap principal exposure,
@@ -34,6 +40,7 @@ pub struct HyperliquidHedger {
     position: watch::Receiver<Option<Position>>,
     status: watch::Sender<HedgeStatus>,
     max_leverage: f64,
+    slippage: f64,
     rehedge_interval_seconds: u64,
 }
 
@@ -46,6 +53,7 @@ impl HyperliquidHedger {
             position: None,
             base_url: BaseUrl::Mainnet,
             max_leverage: None,
+            slippage: None,
             rehedge_interval_seconds: None,
         }
     }
@@ -53,6 +61,11 @@ impl HyperliquidHedger {
     #[must_use]
     pub fn max_leverage(&self) -> f64 {
         self.max_leverage
+    }
+
+    #[must_use]
+    pub fn slippage(&self) -> f64 {
+        self.slippage
     }
 
     #[must_use]
@@ -117,6 +130,12 @@ impl HyperliquidHedger {
 
     fn leverage_setting(required_leverage: f64) -> u32 {
         required_leverage.ceil().max(1.0) as u32
+    }
+
+    /// Base-size drift below which a rebalance is skipped: the larger of the
+    /// taker-fee band and the venue minimum order value converted to base size.
+    fn rebalance_dead_band(target: f64, taker_rate: f64, mid: f64) -> f64 {
+        (target * taker_rate).max(MIN_ORDER_NOTIONAL_USD / mid)
     }
 
     fn exchange_status(
@@ -342,7 +361,7 @@ impl HyperliquidHedger {
                 asset,
                 sz: None,
                 px: None,
-                slippage: None,
+                slippage: Some(self.slippage),
                 cloid: None,
                 wallet: None,
             })
@@ -368,7 +387,9 @@ impl HyperliquidHedger {
 
     /// Opens, increases, or reduces a short hedge for `token` to match `target_raw_size`.
     ///
-    /// Stablecoins and zero targets without an open short return [`None`].
+    /// Stablecoins and zero targets without an open short return [`None`]. Drift
+    /// within the rebalance dead band (the larger of the taker-fee band and the
+    /// venue minimum order value) leaves the current leg unchanged.
     pub async fn hedge(
         &self,
         token: &Token,
@@ -386,8 +407,18 @@ impl HyperliquidHedger {
         let actual = Self::short_size(&state, &asset)?;
         let prior_fees = prior_leg.map(|hedge| hedge.fees_paid).unwrap_or(U256::ZERO);
 
+        // Full closes bypass the dead band so a vanished target never strands a
+        // dust short below the venue minimum order value.
+        if target == 0.0 {
+            if actual > 0.0 {
+                self.close(token).await?;
+            }
+            return Ok(None);
+        }
+
+        let mid = self.mid_price(&asset).await?;
         let delta = target - actual;
-        if delta.abs() <= target * taker_rate {
+        if delta.abs() <= Self::rebalance_dead_band(target, taker_rate, mid) {
             return if actual == 0.0 {
                 Ok(None)
             } else {
@@ -397,13 +428,9 @@ impl HyperliquidHedger {
             };
         }
 
-        if target == 0.0 {
-            self.close(token).await?;
-            return Ok(None);
-        }
-
         let fee = if delta > 0.0 {
-            self.increase_short(&asset, target, delta, &state).await?
+            self.increase_short(&asset, target, delta, mid, &state)
+                .await?
         } else {
             self.reduce_short(&asset, (-delta).min(actual)).await?
         };
@@ -446,9 +473,9 @@ impl HyperliquidHedger {
         asset: &str,
         target_human: f64,
         delta: f64,
+        mid: f64,
         state: &UserStateResponse,
     ) -> Result<U256, HedgerError> {
-        let mid = self.mid_price(asset).await?;
         let target_notional = target_human * mid;
         let withdrawable = Self::withdrawable(state)?;
         let margin_used = Self::margin_used(state, asset)?;
@@ -467,13 +494,13 @@ impl HyperliquidHedger {
             });
         }
 
-        if let Some(venue_max) = Self::venue_max_leverage(state, asset) {
-            if required > f64::from(venue_max) {
-                return Err(HedgerError::VenueLeverageExceeded {
-                    required: required.to_string(),
-                    max: venue_max,
-                });
-            }
+        if let Some(venue_max) = Self::venue_max_leverage(state, asset)
+            && required > f64::from(venue_max)
+        {
+            return Err(HedgerError::VenueLeverageExceeded {
+                required: required.to_string(),
+                max: venue_max,
+            });
         }
 
         let leverage = Self::leverage_setting(required);
@@ -502,7 +529,7 @@ impl HyperliquidHedger {
                 is_buy: false,
                 sz: delta,
                 px: None,
-                slippage: None,
+                slippage: Some(self.slippage),
                 cloid: None,
                 wallet: None,
             })
@@ -521,7 +548,7 @@ impl HyperliquidHedger {
                 asset,
                 sz: Some(delta),
                 px: None,
-                slippage: None,
+                slippage: Some(self.slippage),
                 cloid: None,
                 wallet: None,
             })
@@ -650,7 +677,7 @@ impl HyperliquidHedger {
 
         loop {
             // A closed position watch is terminal absence, even if the last value remains Some.
-            let current = self.position.borrow().clone();
+            let current = *self.position.borrow();
             let current_status = self.status.borrow().clone();
             let next = match current {
                 None => match self.cleanup(&current_status).await {
@@ -674,14 +701,15 @@ impl HyperliquidHedger {
                 Some(position) => self.hedge_position(&position).await,
             };
 
-            if let Some(error) = &next.error {
-                warn!(%error, "hyperliquid hedge cycle failed");
-            }
-
             if self.status.send(next.clone()).is_err() {
                 warn!("hyperliquid hedge status channel closed");
                 let _ = self.cleanup(&next).await;
                 return;
+            }
+
+            if let Some(error) = &next.error {
+                warn!(%error, "hyperliquid hedge cycle failed");
+                continue; // if the status is error, we try to immediately recover (no waiting interval)
             }
 
             tokio::select! {
@@ -730,6 +758,7 @@ pub struct HyperliquidHedgerBuilder {
     position: Option<watch::Receiver<Option<Position>>>,
     base_url: BaseUrl,
     max_leverage: Option<f64>,
+    slippage: Option<f64>,
     rehedge_interval_seconds: Option<u64>,
 }
 
@@ -765,6 +794,16 @@ impl HyperliquidHedgerBuilder {
         self
     }
 
+    /// Maximum market-order slippage as a fraction of the mid price
+    /// (`0.01` = 1%). Orders are submitted as IOC limits priced at
+    /// `mid * (1 - slippage)` for sells and `mid * (1 + slippage)` for buys.
+    /// Must be strictly between 0 and 1. Defaults to `0.01`.
+    #[must_use]
+    pub fn slippage(mut self, slippage: f64) -> Self {
+        self.slippage = Some(slippage);
+        self
+    }
+
     #[must_use]
     pub fn rehedge_interval_seconds(mut self, rehedge_interval_seconds: u64) -> Self {
         self.rehedge_interval_seconds = Some(rehedge_interval_seconds);
@@ -788,10 +827,16 @@ impl HyperliquidHedgerBuilder {
             HedgerError::RequiredFieldMissing("REHEDGE_INTERVAL_SECONDS".to_string())
         })?;
         let base_url = self.base_url;
+        let slippage = self.slippage.unwrap_or(DEFAULT_SLIPPAGE);
 
         if !max_leverage.is_finite() || max_leverage <= 0.0 {
             return Err(HedgerError::InvalidConfig(
                 "max leverage must be finite and strictly positive".to_string(),
+            ));
+        }
+        if !slippage.is_finite() || slippage <= 0.0 || slippage >= 1.0 {
+            return Err(HedgerError::InvalidConfig(
+                "slippage must be a fraction strictly between 0 and 1".to_string(),
             ));
         }
         if rehedge_interval_seconds == 0 {
@@ -824,6 +869,7 @@ impl HyperliquidHedgerBuilder {
             position,
             status,
             max_leverage,
+            slippage,
             rehedge_interval_seconds,
         })
     }
@@ -929,6 +975,16 @@ mod tests {
                 .unwrap()
                 .is_infinite()
         );
+    }
+
+    #[test]
+    fn dead_band_takes_max_of_fee_and_min_notional_bands() {
+        // Large target: fee band (1000 * 0.00045 = 0.45 base) exceeds $10 / mid.
+        let band = HyperliquidHedger::rebalance_dead_band(1000.0, 0.00045, 3000.0);
+        assert!((band - 0.45).abs() < 1e-12);
+        // Small target: $10 minimum order value converted at mid dominates.
+        let band = HyperliquidHedger::rebalance_dead_band(0.1, 0.00045, 3000.0);
+        assert!((band - 10.0 / 3000.0).abs() < 1e-12);
     }
 
     #[test]
@@ -1085,6 +1141,29 @@ mod tests {
 
     #[test]
     #[ignore = "requires local Uniswap RPC"]
+    fn builder_rejects_invalid_slippage() {
+        let rt = runtime();
+        rt.block_on(async {
+            let client = test_client().await;
+            for bad in [0.0, -0.01, 1.0, f64::NAN, f64::INFINITY] {
+                let err = HyperliquidHedger::builder()
+                    .client(client.clone())
+                    .private_key(test_signer())
+                    .position(no_position())
+                    .max_leverage(2.0)
+                    .slippage(bad)
+                    .rehedge_interval_seconds(30)
+                    .build()
+                    .await
+                    .err()
+                    .expect("invalid slippage");
+                assert!(matches!(err, HedgerError::InvalidConfig(_)));
+            }
+        });
+    }
+
+    #[test]
+    #[ignore = "requires local Uniswap RPC"]
     fn builder_rejects_zero_rehedge_interval() {
         let rt = runtime();
         rt.block_on(async {
@@ -1117,6 +1196,7 @@ mod tests {
                 .await
                 .expect("valid builder");
             assert_eq!(hedger.max_leverage(), 3.5);
+            assert_eq!(hedger.slippage(), DEFAULT_SLIPPAGE);
             assert_eq!(hedger.rehedge_interval_seconds(), 30);
         });
     }
