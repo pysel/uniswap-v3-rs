@@ -352,24 +352,22 @@ where
         let response = client.create_position(params, None).await?;
         let minted = response.position.await?;
 
-        info!(
-            position_id = %minted.token_id,
-            open_price = mid,
-            lower_tick,
-            upper_tick,
-            %amount0,
-            %amount1,
-            "constant window position opened"
-        );
-
-        self.position = Some(Position::new(
+        let position = Position::new(
             mid,
             minted.token_id,
             pool.address(),
             client.chain_id(),
             lower_tick,
             upper_tick,
-        ));
+        );
+
+        info!(
+            %position,
+            "constant window position opened"
+        );
+
+        self.position = Some(position);
+
         Ok(())
     }
 
