@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 use alloy_primitives::U256;
 
 use super::errors::HedgerError;
@@ -26,6 +28,16 @@ pub struct Hedge {
     pub margin: U256,
     pub size: U256,
     pub fees_paid: U256,
+}
+
+impl Display for Hedge {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Hedge(venue={}, asset={}, margin={}, size={}, fees_paid={})",
+            self.venue, self.asset, self.margin, self.size, self.fees_paid
+        )
+    }
 }
 
 impl Hedge {
@@ -58,6 +70,24 @@ pub struct HedgeStatus {
     pub token0_hedge: Option<Hedge>,
     pub token1_hedge: Option<Hedge>,
     pub error: Option<HedgerError>,
+}
+
+impl Display for HedgeStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.is_idle() {
+            write!(f, "Idle")
+        } else if self.has_error() {
+            write!(f, "Error: {:?}", self.error)
+        } else {
+            if let Some(token0_hedge) = &self.token0_hedge {
+                write!(f, "token0={}", token0_hedge)?;
+            }
+            if let Some(token1_hedge) = &self.token1_hedge {
+                write!(f, "token1={}", token1_hedge)?;
+            }
+            Ok(())
+        }
+    }
 }
 
 impl HedgeStatus {
