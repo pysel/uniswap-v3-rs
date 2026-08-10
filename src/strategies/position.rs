@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 use alloy_primitives::{Address, U256};
 
 /// In-memory bookkeeping for the strategy-managed NPM position.
@@ -9,6 +11,22 @@ pub struct Position {
     pub chain_id: u64,
     pub lower_tick: i32,
     pub upper_tick: i32,
+}
+
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let pool = format!("{}", self.pool);
+        let pool = if pool.len() >= 10 {
+            format!("{}…{}", &pool[..6], &pool[pool.len() - 4..])
+        } else {
+            pool
+        };
+        write!(
+            f,
+            "Position(open_price={}, pool={}, [{}, {}])",
+            self.open_price, pool, self.lower_tick, self.upper_tick
+        )
+    }
 }
 
 impl Position {

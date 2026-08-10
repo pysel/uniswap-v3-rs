@@ -125,12 +125,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             changed = hedge_rx.changed() => {
                 changed?;
                 let status = hedge_rx.borrow_and_update().clone();
-                info!(?status, "hedge status");
+                info!(%status, "hedge status");
             }
             changed = position_rx.changed() => {
                 changed?;
-                let position = *position_rx.borrow();
-                info!(?position, "position changed");
+                match *position_rx.borrow_and_update() {
+                    Some(position) => info!(%position, "position changed"),
+                    None => info!("position changed: None"),
+                }
             }
             result = &mut strategy_handle => {
                 result??;
