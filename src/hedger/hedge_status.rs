@@ -80,10 +80,10 @@ impl Display for HedgeStatus {
             write!(f, "Error: {:?}", self.error)
         } else {
             if let Some(token0_hedge) = &self.token0_hedge {
-                write!(f, "token0={}", token0_hedge)?;
+                write!(f, "{}", token0_hedge)?;
             }
             if let Some(token1_hedge) = &self.token1_hedge {
-                write!(f, "token1={}", token1_hedge)?;
+                write!(f, "{}", token1_hedge)?;
             }
             Ok(())
         }

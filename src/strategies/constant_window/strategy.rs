@@ -388,11 +388,8 @@ where
         }
 
         info!(
-            position_id = %position.position_id,
-            open_price = position.open_price,
+            %position,
             current_price = current,
-            lower_tick = position.lower_tick,
-            upper_tick = position.upper_tick,
             "constant window position rebalancing"
         );
 
@@ -417,10 +414,7 @@ where
         let _ = response.amounts.await?;
 
         info!(
-            position_id = %position.position_id,
-            open_price = position.open_price,
-            lower_tick = position.lower_tick,
-            upper_tick = position.upper_tick,
+            %position,
             "constant window position closed"
         );
 
