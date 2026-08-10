@@ -89,7 +89,7 @@ src/
     utils.rs              # BPS price adjustment helpers
     constant_window/
       mod.rs              # re-exports strategy types
-      strategy.rs         # ConstantWindowStrategy + builder + run loop
+      strategy.rs         # ConstantWindowStrategy + builder + run loop (CancellationToken abort)
     price_source/         # PriceSource, BinancePriceSource, StablePriceSource, PriceSourceError
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
@@ -139,7 +139,8 @@ NPM calltypes follow the same builder pattern (`CreatePositionParams`, `Increase
 `Strategy::run` takes `&mut self`, a client, and the pool `Address` the strategy should trade,
 spawns a Tokio task, and returns
 `(JoinHandle<Result<(), StrategyError>>, watch::Receiver<Option<Position>>)` so callers can
-await failures / `abort()` the handle and observe strategy-owned position bookkeeping.
+await failures / cancel a shared `CancellationToken` (CW closes NFTs; hedger cleans up open
+legs via existing `cleanup`) and observe strategy-owned position bookkeeping.
 Aborting the task does not close any live NFT.
 `PriceSource::price` produces a Tokio `watch::Receiver<f64>` holding the latest USD price.
 `ConstantWindowStrategy` is parameterized by separate token0/token1 price sources and tracks a
@@ -183,10 +184,10 @@ Hyperliquid `ExchangeClient` and `InfoClient` values, max leverage (upper bound 
 exact notional/collateral ratio), market-order `slippage` (fraction of mid bounding IOC fill
 prices, default `0.01`), and `rehedge_interval_seconds` (periodic recheck cadence).
 Its asynchronous builder accepts an optional Hyperliquid `BaseUrl` (default mainnet; pass
-`BaseUrl::Testnet` for testnet), consumes the configured private key when creating the exchange
-client, and has no public constructor that bypasses that initialization. The hedger spawns a Tokio task
-that reacts to position updates or interval ticks and exits when all hedge-status receivers
-are dropped.
+`BaseUrl::Testnet` for testnet), a required `CancellationToken`, consumes the configured private
+key when creating the exchange client, and has no public constructor that bypasses that
+initialization. The hedger spawns a Tokio task that reacts to position updates, interval ticks, or
+cancellation (cleanup then exit), and also exits when all hedge-status receivers are dropped.
 
 Lifecycle per cycle:
 

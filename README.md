@@ -196,8 +196,11 @@ also enables the top-level `hedger` module.
   consumes a position `watch` channel and publishes `HedgeStatus` updates.
 
 `Strategy::run` returns `(JoinHandle<Result<(), StrategyError>>, watch::Receiver<Option<Position>>)`.
-Callers can await failures, `abort()` the handle, or observe strategy position bookkeeping.
-Aborting the task does **not** close any live NFT.
+Callers can await failures or observe strategy position bookkeeping. Pass a
+`tokio_util::sync::CancellationToken` into both `ConstantWindowStrategy` and `HyperliquidHedger`
+(same token or separate). Cancelling it makes CW call `abort_strategy` (close live NFTs) and
+publish `None` on the position watch, and makes the hedger run its existing `cleanup` on the
+current `HedgeStatus` before exiting.
 
 ### Hedger
 
@@ -215,14 +218,13 @@ Each `Hedge` leg records `venue`, `asset`, `side`, `margin`, `size`, and cumulat
 `margin` and `fees_paid` are USD/USDC at 6-decimal atomic precision.
 
 `HyperliquidHedger` is configured with a `UniswapV3Client` (to read on-chain NPM position state),
-a `PrivateKeySigner`, optional Hyperliquid [`BaseUrl`] (defaults to mainnet; use `BaseUrl::Testnet`
-for testnet), max leverage (`f64`, finite and strictly positive — the maximum leverage
-ratio the hedger may use), optional `slippage` (`f64` fraction of mid strictly between 0 and 1,
-default `0.01` — bounds market-order fill prices), and `rehedge_interval_seconds` (`u64`, strictly
-positive — how often to re-check the position and refresh the hedge). Its asynchronous builder
-consumes the private key
-to initialize and retain the Hyperliquid `ExchangeClient` and `InfoClient`; there is no public
-constructor.
+a `PrivateKeySigner`, a `CancellationToken`, optional Hyperliquid [`BaseUrl`] (defaults to mainnet;
+use `BaseUrl::Testnet` for testnet), max leverage (`f64`, finite and strictly positive — the
+maximum leverage ratio the hedger may use), optional `slippage` (`f64` fraction of mid strictly
+between 0 and 1, default `0.01` — bounds market-order fill prices), and `rehedge_interval_seconds`
+(`u64`, strictly positive — how often to re-check the position and refresh the hedge). Its
+asynchronous builder consumes the private key to initialize and retain the Hyperliquid
+`ExchangeClient` and `InfoClient`; there is no public constructor.
 
 On each position update or interval tick the hedger:
 
@@ -260,6 +262,7 @@ On startup the strategy:
 Example for a WETH/USDC pool where token0 is WETH and token1 is USDC (common on Base):
 
 ```rust
+use tokio_util::sync::CancellationToken;
 use uniswap_v3_rs::{
     calltypes::BPS,
     client::UniswapV3Client,
@@ -288,7 +291,8 @@ assert_eq!(pool.token1().address(), usdc.address());
 usdc.approve_unlimited(&client, npm.address()).await?;
 weth.approve_unlimited(&client, npm.address()).await?;
 
-let mut strategy = ConstantWindowStrategy::builder()
+let cancel = CancellationToken::new();
+let strategy = ConstantWindowStrategy::builder()
     .length_below_mid(WINDOW_BPS)
     .length_above_mid(WINDOW_BPS)
     .rebalance_below_threshold(REBALANCE_BPS)
@@ -297,14 +301,15 @@ let mut strategy = ConstantWindowStrategy::builder()
     .max_token1_amount_as_portfolio_fraction(0.95)
     .price_source_token0(BinancePriceSource::new()) // WETH → ETHUSDT
     .price_source_token1(StablePriceSource::new())  // USDC → 1.0
+    .cancellation_token(cancel.clone())
     .build()?;
 
 let (handle, _position) = strategy.run(client, pool.address())?;
-let abort = handle.abort_handle();
 
 tokio::select! {
     _ = tokio::signal::ctrl_c() => {
-        abort.abort(); // does not close the live NFT
+        cancel.cancel(); // CW closes NFTs, then the task exits
+        handle.await??;
     }
     result = handle => {
         result??;

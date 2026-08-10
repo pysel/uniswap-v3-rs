@@ -13,13 +13,12 @@ pub use constant_window::{ConstantWindowStrategy, ConstantWindowStrategyBuilder}
 pub use errors::StrategyError;
 pub use position::Position;
 pub use price_source::{BinancePriceSource, PriceSource, PriceSourceError, StablePriceSource};
-pub use utils::abort_strategy;
 
 pub type StrategyHandle = JoinHandle<Result<(), StrategyError>>;
 
 pub trait Strategy: Send + 'static {
     /// Spawns the strategy task. The returned handle completes with that task's
-    /// [`StrategyError`] when one occurs; callers can also `abort()` the handle.
+    /// [`StrategyError`] when one occurs.
     fn run(
         self,
         client: UniswapV3Client,

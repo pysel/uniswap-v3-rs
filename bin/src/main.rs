@@ -1,6 +1,7 @@
 use std::{env, error::Error};
 
 use alloy::signers::local::PrivateKeySigner;
+use tokio_util::sync::CancellationToken;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
 use uniswap_v3_rs::{
@@ -8,9 +9,7 @@ use uniswap_v3_rs::{
     client::UniswapV3Client,
     hedger::{BaseUrl, Hedger, HyperliquidHedger},
     objects::{TokenExt, USDC, WETH},
-    strategies::{
-        BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy, abort_strategy,
-    },
+    strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy},
 };
 
 use tracing::info;
@@ -72,6 +71,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     weth.approve_unlimited(&client, npm.address()).await?;
     println!("approved USDC + WETH for NPM");
 
+    let cancellation_token = CancellationToken::new();
+
     let strategy = ConstantWindowStrategy::builder()
         .length_below_mid(WINDOW_BPS)
         .length_above_mid(WINDOW_BPS)
@@ -81,26 +82,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .max_token1_amount_as_portfolio_fraction(1.0)
         .price_source_token0(BinancePriceSource::new())
         .price_source_token1(StablePriceSource::new())
+        .cancellation_token(cancellation_token.clone())
         .build()?;
 
     println!(
         "starting constant-window strategy (window={WINDOW_BPS:?} rebalance={REBALANCE_BPS:?})"
     );
 
-    let (mut handle, position_rx) = strategy.run(client.clone(), pool.address())?;
+    let (mut strategy_handle, mut position_rx) = strategy.run(client.clone(), pool.address())?;
 
     let hedger_address = hedge_signer.address();
     let hedger = HyperliquidHedger::builder()
         .client(client.clone())
         .private_key(hedge_signer)
-        .position(position_rx)
+        .position(position_rx.clone())
         .base_url(BaseUrl::Testnet)
         .max_leverage(MAX_HEDGE_LEVERAGE)
         .rehedge_interval_seconds(REHEDGE_INTERVAL_SECONDS)
+        .cancellation_token(cancellation_token.clone())
         .build()
         .await?;
 
-    let mut hedge_rx = hedger.hedge()?;
+    let (hedger_handle, mut hedge_rx) = hedger.hedge()?;
     info!(
         %hedger_address,
         max_leverage = MAX_HEDGE_LEVERAGE,
@@ -113,7 +116,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                abort_strategy(&client, handle.abort_handle()).await?;
+                cancellation_token.cancel();
+                strategy_handle.await??;
+                hedger_handle.await?;
                 println!("aborted");
                 return Ok(());
             }
@@ -122,8 +127,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let status = hedge_rx.borrow_and_update().clone();
                 info!(?status, "hedge status");
             }
-            result = &mut handle => {
+            changed = position_rx.changed() => {
+                changed?;
+                let position = position_rx.borrow().clone();
+                info!(?position, "position changed");
+            }
+            result = &mut strategy_handle => {
                 result??;
+                cancellation_token.cancel();
+
+                hedger_handle.await?;
+
                 return Ok(());
             }
         }

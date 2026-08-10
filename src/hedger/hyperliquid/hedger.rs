@@ -7,7 +7,8 @@ use hyperliquid_rust_sdk::{
     AssetPosition, BaseUrl, ExchangeClient, ExchangeDataStatus, ExchangeResponseStatus,
     FilledOrder, InfoClient, MarketCloseParams, MarketOrderParams, UserStateResponse,
 };
-use tokio::sync::watch;
+use tokio::{sync::watch, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uniswap_sdk_core::prelude::{BaseCurrencyCore, Token};
 
@@ -42,6 +43,7 @@ pub struct HyperliquidHedger {
     max_leverage: f64,
     slippage: f64,
     rehedge_interval_seconds: u64,
+    cancellation_token: CancellationToken,
 }
 
 impl HyperliquidHedger {
@@ -55,6 +57,7 @@ impl HyperliquidHedger {
             max_leverage: None,
             slippage: None,
             rehedge_interval_seconds: None,
+            cancellation_token: None,
         }
     }
 
@@ -713,6 +716,24 @@ impl HyperliquidHedger {
             }
 
             tokio::select! {
+                _ = self.cancellation_token.cancelled() => {
+                    if let Err(error) = self.cleanup(&next).await {
+                        warn!(%error, "hyperliquid hedge cleanup failed on cancel");
+                        let _ = self.status.send(HedgeStatus::with_error(
+                            HedgerError::StoppedCleanupFailed(error.to_string()),
+                            next.token0_hedge.clone(),
+                            next.token1_hedge.clone(),
+                        ));
+                        return;
+                    }
+
+                    let _ = self.status.send(HedgeStatus::with_error(
+                        HedgerError::Stopped,
+                        None,
+                        None,
+                    ));
+                    return;
+                }
                 changed = self.position.changed() => {
                     if changed.is_err() {
                         if let Err(error) = self.cleanup(&next).await {
@@ -740,15 +761,15 @@ impl HyperliquidHedger {
 }
 
 impl Hedger for HyperliquidHedger {
-    fn hedge(self) -> Result<watch::Receiver<HedgeStatus>, HedgerError> {
+    fn hedge(self) -> Result<(JoinHandle<()>, watch::Receiver<HedgeStatus>), HedgerError> {
         self.validate()?;
         let hedge_rx = self.status.subscribe();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             self.run_loop().await;
         });
 
-        Ok(hedge_rx)
+        Ok((handle, hedge_rx))
     }
 }
 
@@ -760,6 +781,7 @@ pub struct HyperliquidHedgerBuilder {
     max_leverage: Option<f64>,
     slippage: Option<f64>,
     rehedge_interval_seconds: Option<u64>,
+    cancellation_token: Option<CancellationToken>,
 }
 
 impl HyperliquidHedgerBuilder {
@@ -810,6 +832,12 @@ impl HyperliquidHedgerBuilder {
         self
     }
 
+    #[must_use]
+    pub fn cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
+        self.cancellation_token = Some(cancellation_token);
+        self
+    }
+
     pub async fn build(self) -> Result<HyperliquidHedger, HedgerError> {
         let client = self
             .client
@@ -825,6 +853,9 @@ impl HyperliquidHedgerBuilder {
             .ok_or_else(|| HedgerError::RequiredFieldMissing("MAX_LEVERAGE".to_string()))?;
         let rehedge_interval_seconds = self.rehedge_interval_seconds.ok_or_else(|| {
             HedgerError::RequiredFieldMissing("REHEDGE_INTERVAL_SECONDS".to_string())
+        })?;
+        let cancellation_token = self.cancellation_token.ok_or_else(|| {
+            HedgerError::RequiredFieldMissing("CANCELLATION_TOKEN".to_string())
         })?;
         let base_url = self.base_url;
         let slippage = self.slippage.unwrap_or(DEFAULT_SLIPPAGE);
@@ -871,6 +902,7 @@ impl HyperliquidHedgerBuilder {
             max_leverage,
             slippage,
             rehedge_interval_seconds,
+            cancellation_token,
         })
     }
 }
@@ -882,6 +914,7 @@ mod tests {
     use alloy::signers::local::PrivateKeySigner;
     use alloy_primitives::{Address, U256};
     use tokio::sync::watch;
+    use tokio_util::sync::CancellationToken;
     use uniswap_sdk_core::prelude::Token;
 
     use super::*;
@@ -1026,6 +1059,7 @@ mod tests {
                 .position(no_position())
                 .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .err()
@@ -1042,6 +1076,7 @@ mod tests {
                 .private_key(test_signer())
                 .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .err()
@@ -1064,6 +1099,7 @@ mod tests {
                 .client(test_client().await)
                 .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .err()
@@ -1085,6 +1121,7 @@ mod tests {
                 .private_key(test_signer())
                 .position(no_position())
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .err()
@@ -1106,6 +1143,7 @@ mod tests {
                 .private_key(test_signer())
                 .position(no_position())
                 .max_leverage(2.0)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .err()
@@ -1130,6 +1168,7 @@ mod tests {
                     .position(no_position())
                     .max_leverage(bad)
                     .rehedge_interval_seconds(30)
+                    .cancellation_token(CancellationToken::new())
                     .build()
                     .await
                     .err()
@@ -1153,6 +1192,7 @@ mod tests {
                     .max_leverage(2.0)
                     .slippage(bad)
                     .rehedge_interval_seconds(30)
+                    .cancellation_token(CancellationToken::new())
                     .build()
                     .await
                     .err()
@@ -1173,6 +1213,7 @@ mod tests {
                 .position(no_position())
                 .max_leverage(2.0)
                 .rehedge_interval_seconds(0)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .err()
@@ -1192,6 +1233,7 @@ mod tests {
                 .position(no_position())
                 .max_leverage(3.5)
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .expect("valid builder");
@@ -1213,11 +1255,12 @@ mod tests {
                 .position(pos_rx)
                 .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .expect("hedger");
 
-            let hedge_rx = hedger.hedge().expect("hedge");
+            let (_handle, hedge_rx) = hedger.hedge().expect("hedge");
             assert!(hedge_rx.borrow().is_idle());
             tokio::time::sleep(Duration::from_millis(20)).await;
             assert!(hedge_rx.borrow().is_idle());
@@ -1237,11 +1280,12 @@ mod tests {
                 .position(pos_rx)
                 .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
+                .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .expect("hedger");
 
-            let mut hedge_rx = hedger.hedge().expect("hedge");
+            let (_handle, mut hedge_rx) = hedger.hedge().expect("hedge");
             let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
             loop {
                 let status = hedge_rx.borrow().clone();

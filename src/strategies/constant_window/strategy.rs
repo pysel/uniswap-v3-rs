@@ -3,6 +3,7 @@ use alloy_primitives::U256;
 use tokio::sync::watch;
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     calltypes::{BPS, ClosePositionParams, CreatePositionParams},
@@ -74,6 +75,9 @@ pub struct ConstantWindowStrategy<T0, T1> {
 
     // Runtime bookkeeping for the active NPM position.
     position: Option<Position>,
+
+    // Cancellation token for the strategy.
+    cancellation_token: CancellationToken,
 }
 
 impl<T0, T1> ConstantWindowStrategy<T0, T1>
@@ -92,6 +96,7 @@ where
         max_token1_amount_as_portfolio_fraction: f64,
         price_source_token0: T0,
         price_source_token1: T1,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             length_below_mid,
@@ -103,6 +108,7 @@ where
             price_source_token0,
             price_source_token1,
             position: None,
+            cancellation_token,
         }
     }
 
@@ -448,7 +454,7 @@ where
                 call_with_max_retries!(3, self.check_position(&client, &price0, &price1).await)?;
 
                 // position got closed, send None to watch channel
-                if let None = self.position {
+                if self.position.is_none() {
                     position_watch_sender
                         .send(None)
                         .map_err(|_| StrategyError::PositionWatchClosed)?;
@@ -466,6 +472,10 @@ where
             }
 
             tokio::select! {
+                _ = self.cancellation_token.cancelled() => {
+                    self.close_position(&client).await?;
+                    return Ok(());
+                }
                 result = price0.changed() => {
                     result.map_err(|_| StrategyError::PriceSourceClosed)?;
                 }
@@ -524,6 +534,7 @@ pub struct ConstantWindowStrategyBuilder<T0 = (), T1 = ()> {
     max_token1_amount_as_portfolio_fraction: Option<f64>,
     price_source_token0: Option<T0>,
     price_source_token1: Option<T1>,
+    cancellation_token: Option<CancellationToken>,
 }
 
 impl ConstantWindowStrategy<(), ()> {
@@ -538,6 +549,7 @@ impl ConstantWindowStrategy<(), ()> {
             max_token1_amount_as_portfolio_fraction: None,
             price_source_token0: None,
             price_source_token1: None,
+            cancellation_token: None,
         }
     }
 }
@@ -604,6 +616,7 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             max_token1_amount_as_portfolio_fraction: self.max_token1_amount_as_portfolio_fraction,
             price_source_token0: Some(price_source_token0),
             price_source_token1: self.price_source_token1,
+            cancellation_token: self.cancellation_token,
         }
     }
 
@@ -624,7 +637,14 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             max_token1_amount_as_portfolio_fraction: self.max_token1_amount_as_portfolio_fraction,
             price_source_token0: self.price_source_token0,
             price_source_token1: Some(price_source_token1),
+            cancellation_token: self.cancellation_token,
         }
+    }
+
+    #[must_use]
+    pub fn cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
+        self.cancellation_token = Some(cancellation_token);
+        self
     }
 }
 
@@ -666,6 +686,9 @@ where
         let price_source_token1 = self.price_source_token1.ok_or_else(|| {
             UniswapV3Error::RequiredFieldMissing("PRICE_SOURCE_TOKEN1".to_string())
         })?;
+        let cancellation_token = self.cancellation_token.ok_or_else(|| {
+            UniswapV3Error::RequiredFieldMissing("CANCELLATION_TOKEN".to_string())
+        })?;
 
         Ok(ConstantWindowStrategy::new(
             length_below_mid,
@@ -676,6 +699,7 @@ where
             max_token1_amount_as_portfolio_fraction,
             price_source_token0,
             price_source_token1,
+            cancellation_token,
         ))
     }
 }
@@ -730,6 +754,7 @@ mod tests {
             fraction1,
             DummyPriceSource,
             DummyPriceSource,
+            CancellationToken::new(),
         )
     }
 

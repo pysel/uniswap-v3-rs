@@ -6,11 +6,13 @@ pub(crate) mod utils;
 pub use errors::HedgerError;
 pub use hedge_status::{Hedge, HedgeSide, HedgeStatus};
 pub use hyperliquid::{BaseUrl, HyperliquidHedger, HyperliquidHedgerBuilder};
+use tokio::task::JoinHandle;
+use tokio::sync::watch;
 
 /// Strategy-agnostic hedge runner.
 ///
 /// Implementations own a strategy position watch channel and publish the latest
 /// [`HedgeStatus`] on their own watch channel.
 pub trait Hedger: Send + 'static {
-    fn hedge(self) -> Result<tokio::sync::watch::Receiver<HedgeStatus>, HedgerError>;
+    fn hedge(self) -> Result<(JoinHandle<()>, watch::Receiver<HedgeStatus>), HedgerError>;
 }
