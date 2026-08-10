@@ -6,8 +6,8 @@ pub(crate) mod utils;
 pub use errors::HedgerError;
 pub use hedge_status::{Hedge, HedgeSide, HedgeStatus};
 pub use hyperliquid::{BaseUrl, HyperliquidHedger, HyperliquidHedgerBuilder};
-use tokio::task::JoinHandle;
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 /// Strategy-agnostic hedge runner.
 ///

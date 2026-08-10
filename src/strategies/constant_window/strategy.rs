@@ -1,9 +1,9 @@
 use alloy::primitives::Address;
 use alloy_primitives::U256;
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     calltypes::{BPS, ClosePositionParams, CreatePositionParams},

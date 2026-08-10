@@ -854,9 +854,9 @@ impl HyperliquidHedgerBuilder {
         let rehedge_interval_seconds = self.rehedge_interval_seconds.ok_or_else(|| {
             HedgerError::RequiredFieldMissing("REHEDGE_INTERVAL_SECONDS".to_string())
         })?;
-        let cancellation_token = self.cancellation_token.ok_or_else(|| {
-            HedgerError::RequiredFieldMissing("CANCELLATION_TOKEN".to_string())
-        })?;
+        let cancellation_token = self
+            .cancellation_token
+            .ok_or_else(|| HedgerError::RequiredFieldMissing("CANCELLATION_TOKEN".to_string()))?;
         let base_url = self.base_url;
         let slippage = self.slippage.unwrap_or(DEFAULT_SLIPPAGE);
 

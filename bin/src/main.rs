@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             changed = position_rx.changed() => {
                 changed?;
-                let position = position_rx.borrow().clone();
+                let position = *position_rx.borrow();
                 info!(?position, "position changed");
             }
             result = &mut strategy_handle => {
