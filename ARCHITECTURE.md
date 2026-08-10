@@ -6,7 +6,7 @@ Opinionated Uniswap V3 SDK crate. Designed for agents and contributors to naviga
 
 - **Alloy** — HTTP provider, signer/wallet, contract bindings (`sol!`)
 - **`uniswap-sdk-core`** — offline primitives (`Token`, amounts, addresses); no RPC
-- **Tokio** — async runtime; the optional strategy module uses channels and background tasks
+- **Tokio** — async runtime; the optional strategy and hedger modules use channels and background tasks
 
 ## Features
 
@@ -74,6 +74,14 @@ src/
       usdc.rs            # USDC::on_chain from Uniswap default-token-list
       ...                # usdt, wbtc, uni, usde, usdg, usdt0, link, dai, cbbtc, bnb
     abi_definitions.rs   # Alloy sol! bindings for V3Pool / V3Factory / SwapRouter02 / QuoterV2 / NPM / Erc20 (incl. balanceOf/allowance)
+  hedger/                # optional hedge runner (feature-gated with strategies)
+    mod.rs                # Hedger trait + re-exports
+    errors.rs             # HedgerError
+    hedge_status.rs       # Hedge / HedgeStatus / HedgeSide
+    utils.rs              # raw/human and USD atomic conversion helpers
+    hyperliquid/
+      mod.rs              # re-exports HyperliquidHedger types
+      hedger.rs           # HyperliquidHedger + builder + short-hedge state machine
   strategies/            # optional strategy abstractions (feature-gated)
     mod.rs                # Strategy trait + re-exports
     errors.rs             # StrategyError
@@ -82,14 +90,6 @@ src/
     constant_window/
       mod.rs              # re-exports strategy types
       strategy.rs         # ConstantWindowStrategy + builder + run loop
-    hedger/
-      mod.rs              # Hedger trait + re-exports
-      errors.rs           # HedgerError
-      hedge_status.rs     # Hedge / HedgeStatus / HedgeSide
-      utils.rs            # raw/human and USD atomic conversion helpers
-      hyperliquid/
-        mod.rs            # re-exports HyperliquidHedger types
-        hedger.rs         # HyperliquidHedger + builder + short-hedge state machine
     price_source/         # PriceSource, BinancePriceSource, StablePriceSource, PriceSourceError
 artifacts/               # JSON ABIs consumed by sol! (pool, factory, SwapRouter02, QuoterV2, NPM)
 scripts/
@@ -213,7 +213,7 @@ Lifecycle per cycle:
 
 ## Errors
 
-`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures. `HedgerError` lives under `strategies/hedger/errors.rs` and covers missing/invalid configuration, Uniswap/Hyperliquid read failures, unsupported assets, numeric conversion, out of margin, venue leverage limits, order/cleanup failures, unexpected longs, and closed position input.
+`UniswapV3Error` in `errors.rs`: build failures, RPC failures, invalid arguments, invalid pool, and converted `uniswap-sdk-core::Error`. `StrategyError` lives under `strategies/errors.rs` and covers already-running starts, invalid/closed prices, invalid configuration, missing signer/NPM, insufficient balance/allowance, wrapped `PriceSourceError`, and wrapped `UniswapV3Error`. `PriceSourceError` lives under `strategies/price_source/errors.rs` and covers missing token symbols, unsupported tokens, and subscription failures. `HedgerError` lives under `hedger/errors.rs` and covers missing/invalid configuration, Uniswap/Hyperliquid read failures, unsupported assets, numeric conversion, out of margin, venue leverage limits, order/cleanup failures, unexpected longs, and closed position input.
 
 ## Local testing
 

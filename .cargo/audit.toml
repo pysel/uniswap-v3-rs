@@ -1,0 +1,11 @@
+# Transitive vulns from hyperliquid_rust_sdk → ethers 2 / reqwest 0.11 / jsonwebtoken 8.
+# No compatible upgrade path until that stack moves off rustls 0.21 / ring 0.16.
+[advisories]
+ignore = [
+    # ring 0.16.20 via jsonwebtoken 8 ← ethers-providers ← hyperliquid_rust_sdk
+    "RUSTSEC-2025-0009",
+    # rustls-webpki 0.101.7 via rustls 0.21 ← reqwest 0.11 / tokio-tungstenite 0.20 ← ethers / hyperliquid_rust_sdk
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+]

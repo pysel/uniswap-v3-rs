@@ -6,10 +6,10 @@ use uniswap_sdk_core::prelude::BaseCurrency;
 use uniswap_v3_rs::{
     calltypes::BPS,
     client::UniswapV3Client,
+    hedger::{BaseUrl, Hedger, HyperliquidHedger},
     objects::{TokenExt, USDC, WETH},
     strategies::{
-        BaseUrl, BinancePriceSource, ConstantWindowStrategy, Hedger, HyperliquidHedger,
-        StablePriceSource, Strategy, abort_strategy,
+        BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy, abort_strategy,
     },
 };
 

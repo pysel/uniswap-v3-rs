@@ -5,6 +5,8 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
+      - .cargo/audit.toml
+      - .github/workflows/security.yml
   schedule:
     - cron: "23 6 * * 1"
   workflow_dispatch:

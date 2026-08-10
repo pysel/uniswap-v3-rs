@@ -13,14 +13,12 @@ use uniswap_sdk_core::prelude::{BaseCurrencyCore, Token};
 
 use crate::{
     client::UniswapV3Client,
-    objects::{Pool, TokenExt},
-    strategies::{
-        Position,
-        hedger::{
-            Hedge, HedgeSide, HedgeStatus, Hedger, HedgerError,
-            utils::{f64_to_raw, parse_f64, raw_to_f64, usd_to_atomic},
-        },
+    hedger::{
+        Hedge, HedgeSide, HedgeStatus, Hedger, HedgerError,
+        utils::{f64_to_raw, parse_f64, raw_to_f64, usd_to_atomic},
     },
+    objects::{Pool, TokenExt},
+    strategies::Position,
 };
 
 const VENUE: &str = "hyperliquid";
@@ -841,7 +839,7 @@ mod tests {
     use uniswap_sdk_core::prelude::Token;
 
     use super::*;
-    use crate::{objects::TokenExt, strategies::hedger::Hedger};
+    use crate::{hedger::Hedger, objects::TokenExt};
 
     fn test_signer() -> PrivateKeySigner {
         "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"

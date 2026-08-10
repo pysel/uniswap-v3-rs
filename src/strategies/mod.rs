@@ -5,17 +5,12 @@ use crate::client::UniswapV3Client;
 
 mod constant_window;
 mod errors;
-pub mod hedger;
 pub mod position;
 pub mod price_source;
 pub(crate) mod utils;
 
 pub use constant_window::{ConstantWindowStrategy, ConstantWindowStrategyBuilder};
 pub use errors::StrategyError;
-pub use hedger::{
-    BaseUrl, Hedge, HedgeSide, HedgeStatus, Hedger, HedgerError, HyperliquidHedger,
-    HyperliquidHedgerBuilder,
-};
 pub use position::Position;
 pub use price_source::{BinancePriceSource, PriceSource, PriceSourceError, StablePriceSource};
 pub use utils::abort_strategy;

@@ -184,15 +184,16 @@ burning all liquidity. Accrued fees and already-owed amounts remain available se
 
 ## Strategies
 
-The `strategies` feature (on by default) provides shared strategy, price-source, and hedger interfaces.
+The `strategies` feature (on by default) provides shared strategy and price-source interfaces, and
+also enables the top-level `hedger` module.
 
 - `BinancePriceSource` — Spot lowercase `baseusdt@bookTicker` stream; latest bid/ask midpoint in a
   Tokio `watch` channel (reconnects if the socket drops).
 - `StablePriceSource` — constant `1.0` USD for supported stables via the same `watch` pattern.
 - `ConstantWindowStrategy` — keeps a concentrated LP range centered on an external mid
   (`price0_usd / price1_usd`), rebalancing when that mid drifts beyond configured BPS thresholds.
-- `Hedger` / `HyperliquidHedger` — strategy-agnostic hedge runner that consumes a position
-  `watch` channel and publishes `HedgeStatus` updates.
+- `Hedger` / `HyperliquidHedger` (`uniswap_v3_rs::hedger`) — strategy-agnostic hedge runner that
+  consumes a position `watch` channel and publishes `HedgeStatus` updates.
 
 `Strategy::run` returns `(JoinHandle<Result<(), StrategyError>>, watch::Receiver<Option<Position>>)`.
 Callers can await failures, `abort()` the handle, or observe strategy position bookkeeping.
