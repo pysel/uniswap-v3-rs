@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("aborted");
                     return Ok(());
                 }
-                
+
                 match *position_rx.borrow_and_update() {
                     Some(position) => info!(%position, "position changed"),
                     None => info!("position changed: None"),
