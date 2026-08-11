@@ -12,7 +12,7 @@ use uniswap_v3_rs::{
     strategies::{BinancePriceSource, ConstantWindowStrategy, StablePriceSource, Strategy},
 };
 
-use tracing::info;
+use tracing::{info, warn};
 
 const FEE: u32 = 3000;
 const WINDOW_BPS: BPS = BPS::new(100);
@@ -123,12 +123,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 return Ok(());
             }
             changed = hedge_rx.changed() => {
-                changed?;
+                if let Err(error) = changed {
+                    warn!(%error, "hedge changed error");
+                    cancellation_token.cancel();
+                    strategy_handle.await??;
+                    hedger_handle.await?;
+                    println!("aborted");
+                    return Ok(());
+                }
+
                 let status = hedge_rx.borrow_and_update().clone();
                 info!(%status, "hedge status");
             }
             changed = position_rx.changed() => {
-                changed?;
+                if let Err(error) = changed {
+                    warn!(%error, "position changed error");
+                    cancellation_token.cancel();
+                    strategy_handle.await??;
+                    hedger_handle.await?;
+                    println!("aborted");
+                    return Ok(());
+                }
+                
                 match *position_rx.borrow_and_update() {
                     Some(position) => info!(%position, "position changed"),
                     None => info!("position changed: None"),
