@@ -8,4 +8,6 @@ ignore = [
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
+    # h2 0.3.27 via hyper 0.14 ← reqwest 0.11 ← ethers / hyperliquid_rust_sdk (fix only in h2 0.4)
+    "RUSTSEC-2026-0258",
 ]
