@@ -3,8 +3,9 @@
 pub mod calltypes;
 pub mod client;
 pub mod errors;
-#[cfg(feature = "strategies")]
-pub mod hedger;
+mod features;
 pub mod objects;
-#[cfg(feature = "strategies")]
-pub mod strategies;
+
+// Feature-gated modules keep their top-level paths (`crate::hedger`, `crate::strategies`, ...).
+#[allow(unused_imports)] // empty when no features are enabled
+pub use features::*;

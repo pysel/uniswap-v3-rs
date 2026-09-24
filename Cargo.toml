@@ -25,18 +25,23 @@ default-members = ["bin"]
 resolver = "2"
 
 [features]
-default = ["strategies"]
+default = []
 strategies = [
-    "dep:ethers-signers",
     "dep:futures-util",
-    "dep:hyperliquid_rust_sdk",
     "dep:serde",
     "dep:serde_json",
     "dep:tokio",
     "dep:tokio-tungstenite",
-    "dep:tracing",
     "dep:tokio-util",
+    "dep:tracing",
 ]
+# The hedger consumes `strategies::Position` watch channels.
+hedger = [
+    "strategies",
+    "dep:ethers-signers",
+    "dep:hyperliquid_rust_sdk",
+]
+revert = []
 
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }

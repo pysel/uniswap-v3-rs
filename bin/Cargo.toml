@@ -9,7 +9,7 @@ name = "uniswap-v3-rs"
 path = "src/main.rs"
 
 [dependencies]
-uniswap-v3-rs = { path = "..", features = ["strategies"] }
+uniswap-v3-rs = { path = "..", features = ["strategies", "hedger", "revert"] }
 alloy = { version = "2.2.0", features = ["signer-local"] }
 alloy-primitives = "1.6.1"
 dotenvy = "0.15.7"
