@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{borrow::BorrowMut, time::Duration};
 
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::U256;
@@ -131,16 +131,6 @@ impl HyperliquidHedger {
         Ok(target_notional_usd / usable_collateral_usd)
     }
 
-    fn leverage_setting(required_leverage: f64) -> u32 {
-        required_leverage.ceil().max(1.0) as u32
-    }
-
-    /// Base-size drift below which a rebalance is skipped: the larger of the
-    /// taker-fee band and the venue minimum order value converted to base size.
-    fn rebalance_dead_band(target: f64, taker_rate: f64, mid: f64) -> f64 {
-        (target * taker_rate).max(MIN_ORDER_NOTIONAL_USD / mid)
-    }
-
     fn exchange_status(
         response: ExchangeResponseStatus,
     ) -> Result<ExchangeDataStatus, HedgerError> {
@@ -167,37 +157,6 @@ impl HyperliquidHedger {
         }
     }
 
-    fn ensure_success(response: ExchangeResponseStatus) -> Result<(), HedgerError> {
-        // update_leverage / similar actions return `{status:ok, response:{type:default}}`
-        // with no `data` statuses payload.
-        match response {
-            ExchangeResponseStatus::Ok(response) => match response.data {
-                None => Ok(()),
-                Some(data) => {
-                    let mut statuses = data.statuses.into_iter();
-                    let status = statuses.next().ok_or_else(|| {
-                        HedgerError::OrderFailed(
-                            "exchange response contains no statuses".to_string(),
-                        )
-                    })?;
-                    if statuses.next().is_some() {
-                        return Err(HedgerError::OrderFailed(
-                            "exchange response contains multiple statuses".to_string(),
-                        ));
-                    }
-                    match status {
-                        ExchangeDataStatus::Success => Ok(()),
-                        ExchangeDataStatus::Error(error) => Err(HedgerError::OrderFailed(error)),
-                        status => Err(HedgerError::OrderFailed(format!(
-                            "expected success response, received {status:?}"
-                        ))),
-                    }
-                }
-            },
-            ExchangeResponseStatus::Err(error) => Err(HedgerError::OrderFailed(error)),
-        }
-    }
-
     fn filled_order(response: ExchangeResponseStatus) -> Result<FilledOrder, HedgerError> {
         match Self::exchange_status(response)? {
             ExchangeDataStatus::Filled(fill) => Ok(fill),
@@ -205,47 +164,6 @@ impl HyperliquidHedger {
                 "expected filled order, received {status:?}"
             ))),
         }
-    }
-
-    fn rounded_order_size(&self, asset: &str, size: f64) -> Result<(f64, f64), HedgerError> {
-        let decimals = self
-            .exchange_client
-            .meta
-            .universe
-            .iter()
-            .find(|item| item.name == asset)
-            .ok_or_else(|| HedgerError::UnsupportedAsset(asset.to_string()))?
-            .sz_decimals;
-        let factor = 10f64.powi(decimals as i32);
-        let rounded = (size * factor).round() / factor;
-        Ok((rounded, 0.5 / factor))
-    }
-
-    fn validate_fill(
-        &self,
-        asset: &str,
-        requested_size: f64,
-        fill: &FilledOrder,
-    ) -> Result<(), HedgerError> {
-        let (requested_size, tolerance) = self.rounded_order_size(asset, requested_size)?;
-        let filled_size = parse_f64(&fill.total_sz, "filled size")?;
-        if requested_size <= 0.0 || filled_size <= 0.0 {
-            return Err(HedgerError::OrderFailed(format!(
-                "{asset} order filled zero size"
-            )));
-        }
-        if filled_size + tolerance < requested_size {
-            return Err(HedgerError::OrderFailed(format!(
-                "{asset} order partially filled: requested {requested_size}, filled {filled_size}"
-            )));
-        }
-        Ok(())
-    }
-
-    fn taker_fee(fill: &FilledOrder, taker_rate: f64) -> Result<U256, HedgerError> {
-        let filled_size = parse_f64(&fill.total_sz, "filled size")?;
-        let average_price = parse_f64(&fill.avg_px, "average fill price")?;
-        usd_to_atomic(filled_size * average_price * taker_rate)
     }
 
     async fn user_state(&self) -> Result<UserStateResponse, HedgerError> {
@@ -284,33 +202,10 @@ impl HyperliquidHedger {
     }
 
     fn signed_size(state: &UserStateResponse, asset: &str) -> Result<f64, HedgerError> {
-        let Some(position) = Self::asset_position(state, asset) else {
+        let Some(position) = Self::asset_position(state, &asset) else {
             return Ok(0.0);
         };
         parse_f64(&position.position.szi, "position szi")
-    }
-
-    fn short_size(state: &UserStateResponse, asset: &str) -> Result<f64, HedgerError> {
-        let szi = Self::signed_size(state, asset)?;
-        if szi > 0.0 {
-            return Err(HedgerError::UnexpectedLong(asset.to_string()));
-        }
-        Ok(szi.abs())
-    }
-
-    fn margin_used(state: &UserStateResponse, asset: &str) -> Result<f64, HedgerError> {
-        let Some(position) = Self::asset_position(state, asset) else {
-            return Ok(0.0);
-        };
-        parse_f64(&position.position.margin_used, "margin_used")
-    }
-
-    fn venue_max_leverage(state: &UserStateResponse, asset: &str) -> Option<u32> {
-        Self::asset_position(state, asset).map(|position| position.position.max_leverage)
-    }
-
-    fn withdrawable(state: &UserStateResponse) -> Result<f64, HedgerError> {
-        parse_f64(&state.withdrawable, "withdrawable")
     }
 
     fn resolve_asset(&self, token: &Token) -> Result<Option<String>, HedgerError> {
@@ -334,7 +229,7 @@ impl HyperliquidHedger {
             let szi = Self::signed_size(&state, &asset)?;
             if szi.abs() > 0.0 {
                 info!(%asset, szi, "pre_run closing existing hyperliquid position");
-                self.close(token).await.map_err(|error| {
+                self.close(&asset).await.map_err(|error| {
                     HedgerError::CleanupFailed(format!("pre_run close {asset}: {error}"))
                 })?;
             }
@@ -343,194 +238,104 @@ impl HyperliquidHedger {
     }
 
     /// Fully closes the Hyperliquid position for `token`, returning estimated taker fees.
-    pub async fn close(&self, token: &Token) -> Result<U256, HedgerError> {
-        let Some(asset) = self.resolve_asset(token)? else {
-            return Ok(U256::ZERO);
-        };
-        self.close_asset(&asset).await
-    }
-
-    async fn close_asset(&self, asset: &str) -> Result<U256, HedgerError> {
+    pub async fn close(&self, asset: &str) -> Result<U256, HedgerError> {
         let state = self.user_state().await?;
-        let szi = Self::signed_size(&state, asset)?;
+        let szi = Self::signed_size(&state, &asset)?;
         if szi.abs() == 0.0 {
             return Ok(U256::ZERO);
         }
-        let taker_rate = self.taker_rate().await?;
 
-        let response = self
-            .exchange_client
-            .market_close(MarketCloseParams {
-                asset,
-                sz: None,
-                px: None,
-                slippage: Some(self.slippage),
-                cloid: None,
-                wallet: None,
-            })
-            .await
-            .map_err(|error| HedgerError::CleanupFailed(error.to_string()))?;
-        let fill = Self::filled_order(response)
-            .and_then(|fill| {
-                self.validate_fill(asset, szi.abs(), &fill)?;
-                Ok(fill)
-            })
-            .map_err(|error| HedgerError::CleanupFailed(format!("close {asset}: {error}")))?;
+        let fill = self.adjust_size(&asset, szi).await?;
 
-        let state = self.user_state().await?;
-        let remaining = Self::signed_size(&state, asset)?;
-        if remaining.abs() > 0.0 {
-            return Err(HedgerError::CleanupFailed(format!(
-                "asset {asset} still open with szi {remaining}"
-            )));
-        }
-        Self::taker_fee(&fill, taker_rate)
-            .map_err(|error| HedgerError::CleanupFailed(format!("close {asset}: {error}")))
+        self.cost_of_fill(&fill).await
     }
 
-    /// Opens, increases, or reduces a short hedge for `token` to match `target_raw_size`.
-    ///
-    /// Stablecoins and zero targets without an open short return [`None`]. Drift
-    /// within the rebalance dead band (the larger of the taker-fee band and the
-    /// venue minimum order value) leaves the current leg unchanged.
     pub async fn hedge(
         &self,
         token: &Token,
-        target_raw_size: U256,
-        prior_leg: Option<&Hedge>,
+        target_raw_size: U256
     ) -> Result<Option<Hedge>, HedgerError> {
+        // Clone out so the non-`Send` watch guard is dropped before any `.await`.
+        let current_hedge = self.status.borrow().get_hedge(token).cloned();
+
+        let current_hedge_size = match &current_hedge {
+            Some(hedge) => hedge.size,
+            None => U256::ZERO,
+        };
+
         let Some(asset) = self.resolve_asset(token)? else {
             return Ok(None);
         };
 
-        let target = raw_to_f64(target_raw_size, token.decimals())?;
-        let (target, _) = self.rounded_order_size(&asset, target)?;
-        let taker_rate = self.taker_rate().await?;
-        let state = self.user_state().await?;
-        let actual = Self::short_size(&state, &asset)?;
-        let prior_fees = prior_leg.map(|hedge| hedge.fees_paid).unwrap_or(U256::ZERO);
-
-        // Full closes bypass the dead band so a vanished target never strands a
-        // dust short below the venue minimum order value.
-        if target == 0.0 {
-            if actual > 0.0 {
-                self.close(token).await?;
-            }
+        if target_raw_size.is_zero() {
+            self.close(&asset).await?;
             return Ok(None);
         }
 
-        let mid = self.mid_price(&asset).await?;
-        let delta = target - actual;
-        if delta.abs() <= Self::rebalance_dead_band(target, taker_rate, mid) {
-            return if actual == 0.0 {
-                Ok(None)
-            } else {
-                Ok(Some(Self::hedge_from_state(
-                    token, &asset, &state, prior_fees,
-                )?))
-            };
+        let current_size: f64 = raw_to_f64(current_hedge_size, token.decimals())?;
+        let target_size: f64 = raw_to_f64(target_raw_size, token.decimals())?;
+
+        let base_delta = target_size - current_size;
+
+        // Skip drift below the venue's minimum order value, in either direction.
+        let usd_delta = self.base_to_usd(&asset, base_delta).await?;
+        if usd_delta.abs() < MIN_ORDER_NOTIONAL_USD {
+            return Ok(current_hedge);
         }
 
-        let fee = if delta > 0.0 {
-            self.increase_short(&asset, target, delta, mid, &state)
-                .await?
-        } else {
-            self.reduce_short(&asset, (-delta).min(actual)).await?
+        let fill = self.adjust_size(&asset, base_delta).await?;
+        let fees_paid = self.cost_of_fill(&fill).await?;
+
+        // `total_sz` is unsigned; apply it in the direction of the delta.
+        let filled = parse_f64(&fill.total_sz, "filled size")?.copysign(base_delta);
+        let new_size = f64_to_raw(token, (current_size + filled).max(0.0))?;
+
+        if new_size.is_zero() {
+            return Ok(None)
+        }
+
+        let new_hedge = match current_hedge {
+            Some(hedge) => {
+                hedge
+                    .increase_fees(fees_paid)
+                    .update_size(new_size)
+            },
+            None => {
+                Hedge::new(
+                    VENUE.to_string(), 
+                    token.clone(),
+                    HedgeSide::Short, 
+                    new_size, 
+                    fees_paid
+                )
+            }
         };
-        let state = self.user_state().await?;
-        let actual = Self::short_size(&state, &asset)?;
-        if actual == 0.0 {
-            return Err(HedgerError::OrderFailed(format!(
-                "{asset} position is flat after hedging a non-zero target"
-            )));
-        }
-        Ok(Some(Self::hedge_from_state(
-            token,
-            &asset,
-            &state,
-            prior_fees.saturating_add(fee),
-        )?))
+
+        Ok(Some(new_hedge))
     }
 
-    fn hedge_from_state(
-        token: &Token,
-        asset: &str,
-        state: &UserStateResponse,
-        fees_paid: U256,
-    ) -> Result<Hedge, HedgerError> {
-        let size_human = Self::short_size(state, asset)?;
-        let margin_usd = Self::margin_used(state, asset)?;
-        let size = f64_to_raw(token, size_human)?;
-        Ok(Hedge::new(
-            VENUE.to_string(),
-            asset.to_string(),
-            HedgeSide::Short,
-            usd_to_atomic(margin_usd)?,
-            size,
-            fees_paid,
-        ))
+    async fn base_to_usd(&self, asset: &str, base_delta: f64) -> Result<f64, HedgerError> {
+        let mid = self.mid_price(asset).await?;
+        let usd_delta = base_delta * mid;
+        return Ok(usd_delta)
     }
 
-    async fn increase_short(
-        &self,
-        asset: &str,
-        target_human: f64,
-        delta: f64,
-        mid: f64,
-        state: &UserStateResponse,
-    ) -> Result<U256, HedgerError> {
-        let target_notional = target_human * mid;
-        let withdrawable = Self::withdrawable(state)?;
-        let margin_used = Self::margin_used(state, asset)?;
-        let usable = withdrawable + margin_used;
-        let required = Self::required_leverage(target_notional, usable)?;
-
-        if !required.is_finite() || required > self.max_leverage {
-            let required_margin = if self.max_leverage > 0.0 {
-                target_notional / self.max_leverage
-            } else {
-                target_notional
-            };
-            return Err(HedgerError::OutOfMargin {
-                required: usd_to_atomic(required_margin)?,
-                available: usd_to_atomic(usable)?,
-            });
-        }
-
-        if let Some(venue_max) = Self::venue_max_leverage(state, asset)
-            && required > f64::from(venue_max)
-        {
-            return Err(HedgerError::VenueLeverageExceeded {
-                required: required.to_string(),
-                max: venue_max,
-            });
-        }
-
-        let leverage = Self::leverage_setting(required);
-        let response = self
-            .exchange_client
-            .update_leverage(leverage, asset, true, None)
-            .await
-            .map_err(|error| {
-                let message = error.to_string();
-                if message.to_lowercase().contains("leverage") {
-                    HedgerError::VenueLeverageExceeded {
-                        required: required.to_string(),
-                        max: leverage,
-                    }
-                } else {
-                    HedgerError::OrderFailed(message)
-                }
-            })?;
-        Self::ensure_success(response)?;
-
+    async fn cost_of_fill(&self, fill: &FilledOrder) -> Result<U256, HedgerError> {
         let taker_rate = self.taker_rate().await?;
+        let filled_size = parse_f64(&fill.total_sz, "filled size")?;
+        let average_price = parse_f64(&fill.avg_px, "average fill price")?;
+        usd_to_atomic(filled_size * average_price * taker_rate)
+    }
+
+    /// Moves `asset` by signed `delta` (positive buys, negative sells).
+    /// Returns the signed size actually filled.
+    async fn adjust_size(&self, asset: &str, base_delta: f64) -> Result<FilledOrder, HedgerError> {
         let response = self
             .exchange_client
             .market_open(MarketOrderParams {
-                asset,
-                is_buy: false,
-                sz: delta,
+                asset: &asset,
+                is_buy: base_delta < 0.0,
+                sz: base_delta.abs(),
                 px: None,
                 slippage: Some(self.slippage),
                 cloid: None,
@@ -538,28 +343,7 @@ impl HyperliquidHedger {
             })
             .await
             .map_err(|error| HedgerError::OrderFailed(error.to_string()))?;
-        let fill = Self::filled_order(response)?;
-        self.validate_fill(asset, delta, &fill)?;
-        Self::taker_fee(&fill, taker_rate)
-    }
-
-    async fn reduce_short(&self, asset: &str, delta: f64) -> Result<U256, HedgerError> {
-        let taker_rate = self.taker_rate().await?;
-        let response = self
-            .exchange_client
-            .market_close(MarketCloseParams {
-                asset,
-                sz: Some(delta),
-                px: None,
-                slippage: Some(self.slippage),
-                cloid: None,
-                wallet: None,
-            })
-            .await
-            .map_err(|error| HedgerError::OrderFailed(error.to_string()))?;
-        let fill = Self::filled_order(response)?;
-        self.validate_fill(asset, delta, &fill)?;
-        Self::taker_fee(&fill, taker_rate)
+        Self::filled_order(response)
     }
 
     async fn load_exposure(
@@ -602,7 +386,11 @@ impl HyperliquidHedger {
             if closed_assets.contains(&hedge.asset) {
                 continue;
             }
-            match self.close_asset(&hedge.asset).await {
+            let Some(asset) = self.resolve_asset(&hedge.asset)? else {
+                return Err(HedgerError::TokenSymbolMissing);
+            };
+
+            match self.close(&asset).await {
                 Ok(_) => closed_assets.push(hedge.asset.clone()),
                 Err(error) => errors.push(error.to_string()),
             }
@@ -614,57 +402,33 @@ impl HyperliquidHedger {
         }
     }
 
+    fn current_hedge_status_with_error(&self, error: HedgerError) -> HedgeStatus {
+        let current = self.status.borrow();
+        let new_status = current
+            .clone()
+            .with_error(error);
+
+        return new_status;
+    }
+
     async fn hedge_position(&self, position: &Position) -> HedgeStatus {
-        let current = self.status.borrow().clone();
-        let mut token0_hedge = current.token0_hedge.clone();
-        let mut token1_hedge = current.token1_hedge.clone();
         let (token0, token1, amount0, amount1) = match self.load_exposure(position).await {
             Ok(exposure) => exposure,
             Err(error) => {
-                return HedgeStatus::with_error(error, token0_hedge, token1_hedge);
+                return self.current_hedge_status_with_error(error)
             }
         };
 
-        let token0_asset = match self.resolve_asset(&token0) {
-            Ok(asset) => asset,
-            Err(error) => {
-                return HedgeStatus::with_error(error, token0_hedge, token1_hedge);
-            }
-        };
-        let token1_asset = match self.resolve_asset(&token1) {
-            Ok(asset) => asset,
-            Err(error) => {
-                return HedgeStatus::with_error(error, token0_hedge, token1_hedge);
-            }
-        };
-        let pair_changed = token0_hedge
-            .as_ref()
-            .is_some_and(|hedge| Some(&hedge.asset) != token0_asset.as_ref())
-            || token1_hedge
-                .as_ref()
-                .is_some_and(|hedge| Some(&hedge.asset) != token1_asset.as_ref());
-        if pair_changed {
-            return match self.cleanup(&current).await {
-                Ok(()) => HedgeStatus::idle(),
-                Err(error) => HedgeStatus::with_error(error, token0_hedge, token1_hedge),
-            };
-        }
-
-        if current.is_idle()
-            && let Err(error) = self.pre_run(&token0, &token1).await
-        {
-            return HedgeStatus::with_error(error, None, None);
-        }
-        token0_hedge = match self.hedge(&token0, amount0, token0_hedge.as_ref()).await {
+        let token0_hedge = match self.hedge(&token0, amount0).await {
             Ok(hedge) => hedge,
             Err(error) => {
-                return HedgeStatus::with_error(error, token0_hedge, token1_hedge);
+                return self.current_hedge_status_with_error(error)
             }
         };
-        token1_hedge = match self.hedge(&token1, amount1, token1_hedge.as_ref()).await {
+        let token1_hedge = match self.hedge(&token1, amount1).await {
             Ok(hedge) => hedge,
             Err(error) => {
-                return HedgeStatus::with_error(error, token0_hedge, token1_hedge);
+                return self.current_hedge_status_with_error(error)
             }
         };
 
@@ -685,20 +449,12 @@ impl HyperliquidHedger {
             let next = match current {
                 None => match self.cleanup(&current_status).await {
                     Ok(()) => HedgeStatus::idle(),
-                    Err(error) => HedgeStatus::with_error(
-                        error,
-                        current_status.token0_hedge.clone(),
-                        current_status.token1_hedge.clone(),
-                    ),
+                    Err(error) => self.current_hedge_status_with_error(error)
                 },
                 Some(_) if current_status.has_error() => {
                     match self.cleanup(&current_status).await {
                         Ok(()) => HedgeStatus::idle(),
-                        Err(error) => HedgeStatus::with_error(
-                            error,
-                            current_status.token0_hedge.clone(),
-                            current_status.token1_hedge.clone(),
-                        ),
+                        Err(error) => self.current_hedge_status_with_error(error)
                     }
                 }
                 Some(position) => self.hedge_position(&position).await,
@@ -719,38 +475,22 @@ impl HyperliquidHedger {
                 _ = self.cancellation_token.cancelled() => {
                     if let Err(error) = self.cleanup(&next).await {
                         warn!(%error, "hyperliquid hedge cleanup failed on cancel");
-                        let _ = self.status.send(HedgeStatus::with_error(
-                            HedgerError::StoppedCleanupFailed(error.to_string()),
-                            next.token0_hedge.clone(),
-                            next.token1_hedge.clone(),
-                        ));
+                        let _ = self.status.send(self.current_hedge_status_with_error(error));
                         return;
                     }
 
-                    let _ = self.status.send(HedgeStatus::with_error(
-                        HedgerError::Stopped,
-                        None,
-                        None,
-                    ));
+                    let _ = self.status.send(self.current_hedge_status_with_error(HedgerError::Stopped));
                     return;
                 }
                 changed = self.position.changed() => {
                     if changed.is_err() {
                         if let Err(error) = self.cleanup(&next).await {
                             warn!(%error, "hyperliquid hedge cycle failed");
-                            let _ = self.status.send(HedgeStatus::with_error(
-                                HedgerError::StoppedCleanupFailed(error.to_string()),
-                                next.token0_hedge.clone(),
-                                next.token1_hedge.clone(),
-                            ));
+                            let _ = self.status.send(self.current_hedge_status_with_error(error));
                             return;
                         }
 
-                        let _ = self.status.send(HedgeStatus::with_error(
-                            HedgerError::Stopped,
-                            None,
-                            None,
-                        ));
+                        let _ = self.status.send(self.current_hedge_status_with_error(HedgerError::Stopped));
                         return;
                     }
                 }
@@ -998,29 +738,6 @@ mod tests {
     }
 
     #[test]
-    fn leverage_from_notional_and_collateral() {
-        let required = HyperliquidHedger::required_leverage(0.01 * 3000.0, 0.005 * 3000.0).unwrap();
-        assert!((required - 2.0).abs() < 1e-12);
-        assert_eq!(HyperliquidHedger::leverage_setting(2.0), 2);
-        assert_eq!(HyperliquidHedger::leverage_setting(2.1), 3);
-        assert!(
-            HyperliquidHedger::required_leverage(30.0, 0.0)
-                .unwrap()
-                .is_infinite()
-        );
-    }
-
-    #[test]
-    fn dead_band_takes_max_of_fee_and_min_notional_bands() {
-        // Large target: fee band (1000 * 0.00045 = 0.45 base) exceeds $10 / mid.
-        let band = HyperliquidHedger::rebalance_dead_band(1000.0, 0.00045, 3000.0);
-        assert!((band - 0.45).abs() < 1e-12);
-        // Small target: $10 minimum order value converted at mid dominates.
-        let band = HyperliquidHedger::rebalance_dead_band(0.1, 0.00045, 3000.0);
-        assert!((band - 10.0 / 3000.0).abs() < 1e-12);
-    }
-
-    #[test]
     fn fees_accumulate_in_atomic_usd() {
         let open_fee = usd_to_atomic(0.0135).unwrap();
         let adjust_fee = usd_to_atomic(0.002790).unwrap();
@@ -1039,7 +756,7 @@ mod tests {
         let hedged = HedgeStatus::hedged(None, None);
         assert!(hedged.is_idle());
 
-        let errored = HedgeStatus::with_error(HedgerError::Stopped, None, None);
+        let errored = hedged.with_error(HedgerError::Stopped);
         assert!(errored.has_error());
         assert!(!errored.is_idle());
     }

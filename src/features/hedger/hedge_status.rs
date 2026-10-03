@@ -1,6 +1,7 @@
-use std::fmt::{Display, Formatter};
+use std::{fmt::{Display, Formatter}, ops::Add};
 
 use alloy_primitives::U256;
+use uniswap_sdk_core::entities::{BaseCurrency, Token};
 
 use super::errors::HedgerError;
 
@@ -9,6 +10,16 @@ use super::errors::HedgerError;
 pub enum HedgeSide {
     Long,
     Short,
+}
+
+impl HedgeSide {
+    pub fn from_size(size: U256) -> Self {
+        if size.gt(&U256::ZERO) {
+            HedgeSide::Long
+        } else {
+            HedgeSide::Short
+        }
+    }
 }
 
 /// One venue hedge leg managed for a Uniswap pool token.
@@ -20,12 +31,11 @@ pub enum HedgeSide {
 ///   precision (`1 USDC = 1_000_000`).
 /// - [`Self::fees_paid`]: cumulative estimated taker fees for the current managed
 ///   session, also in 6-decimal USD/USDC units.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Hedge {
     pub venue: String,
-    pub asset: String,
+    pub asset: Token,
     pub side: HedgeSide,
-    pub margin: U256,
     pub size: U256,
     pub fees_paid: U256,
 }
@@ -34,8 +44,8 @@ impl Display for Hedge {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Hedge(venue={}, asset={}, margin={}, size={}, fees_paid={})",
-            self.venue, self.asset, self.margin, self.size, self.fees_paid
+            "Hedge(venue={}, asset={}, size={}, fees_paid={})",
+            self.venue, self.asset.address, self.size, self.fees_paid
         )
     }
 }
@@ -43,9 +53,8 @@ impl Display for Hedge {
 impl Hedge {
     pub fn new(
         venue: String,
-        asset: String,
+        asset: Token,
         side: HedgeSide,
-        margin: U256,
         size: U256,
         fees_paid: U256,
     ) -> Self {
@@ -53,10 +62,19 @@ impl Hedge {
             venue,
             asset,
             side,
-            margin,
             size,
             fees_paid,
         }
+    }
+
+    pub fn update_size(mut self, new_size: U256) -> Self {
+        self.size = new_size;
+        self
+    }
+
+    pub fn increase_fees(mut self, fees: U256) -> Self {
+        self.fees_paid += fees;
+        self
     }
 }
 
@@ -65,7 +83,7 @@ impl Hedge {
 /// - No legs and `error: None` means idle / cleaned up.
 /// - Legs with `error: None` means actively hedged.
 /// - `error: Some(_)` retains the last known legs for cleanup.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct HedgeStatus {
     pub token0_hedge: Option<Hedge>,
     pub token1_hedge: Option<Hedge>,
@@ -107,13 +125,12 @@ impl HedgeStatus {
 
     #[must_use]
     pub fn with_error(
+        self,
         error: HedgerError,
-        token0_hedge: Option<Hedge>,
-        token1_hedge: Option<Hedge>,
     ) -> Self {
         Self {
-            token0_hedge,
-            token1_hedge,
+            token0_hedge: self.token0_hedge,
+            token1_hedge: self.token1_hedge,
             error: Some(error),
         }
     }
@@ -126,5 +143,12 @@ impl HedgeStatus {
     #[must_use]
     pub fn has_error(&self) -> bool {
         self.error.is_some()
+    }
+
+    pub fn get_hedge(&self, token: &Token) -> Option<&Hedge> {
+        [&self.token0_hedge, &self.token1_hedge]
+            .into_iter()
+            .flatten()
+            .find(|hedge| hedge.asset.address == token.address)
     }
 }

@@ -34,4 +34,6 @@ pub enum HedgerError {
     Stopped,
     #[error("hedger stopped, positions failed to cleanup, reason: {0}")]
     StoppedCleanupFailed(String),
+    #[error("token not part of hedged pair: {0}")]
+    NotInHedgedPair(String),
 }
