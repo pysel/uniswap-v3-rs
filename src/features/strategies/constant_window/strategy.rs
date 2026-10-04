@@ -1,15 +1,17 @@
 #[cfg(feature = "revert")]
 use std::ops::Mul;
 
+use alloy::primitives::Address;
 #[cfg(feature = "revert")]
 use alloy::primitives::utils::parse_units;
-use alloy::primitives::Address;
 use alloy_primitives::U256;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 
+#[cfg(feature = "revert")]
+use crate::client::USD_DECIMALS;
 use crate::{
     calltypes::{BPS, ClosePositionParams, CreatePositionParams},
     client::UniswapV3Client,
@@ -22,8 +24,6 @@ use crate::{
         utils::{apply_bps_above, apply_bps_below},
     },
 };
-#[cfg(feature = "revert")]
-use crate::client::USD_DECIMALS;
 
 #[cfg(feature = "revert")]
 const DEFAULT_LEVERAGE: u32 = 2;
@@ -450,12 +450,12 @@ where
         borrow_amount: U256,
     ) -> Result<(), StrategyError> {
         if borrow_amount.is_zero() {
-            return Ok(())
+            return Ok(());
         }
 
         if let Some(revert_lend) = client.revert_lend()
-            && client.get_position_owner(position.position_id).await? != revert_lend.vault() {
-
+            && client.get_position_owner(position.position_id).await? != revert_lend.vault()
+        {
             client
                 .deposit_to_revert(position, client.signer_address())
                 .await?
@@ -487,7 +487,11 @@ where
         client: &UniswapV3Client,
         position: &Position,
     ) -> Result<(), StrategyError> {
-        if !client.revert_loan_debt_shares(position.position_id).await?.is_zero() {
+        if !client
+            .revert_loan_debt_shares(position.position_id)
+            .await?
+            .is_zero()
+        {
             client
                 .leverage_down(position, BPS::from(100_00), BPS::from(50))
                 .await?
@@ -496,8 +500,8 @@ where
         }
 
         if let Some(revert_lend) = client.revert_lend()
-            && client.get_position_owner(position.position_id).await? == revert_lend.vault() {
-
+            && client.get_position_owner(position.position_id).await? == revert_lend.vault()
+        {
             client
                 .withdraw_from_revert(position, client.signer_address())
                 .await?
@@ -602,7 +606,9 @@ where
                 )?;
 
                 #[cfg(feature = "revert")]
-                if let Some(position) = self.position && self.leveraged {
+                if let Some(position) = self.position
+                    && self.leveraged
+                {
                     let price0 = float_to_u256(*price0.borrow(), USD_DECIMALS);
                     let price1 = float_to_u256(*price1.borrow(), USD_DECIMALS);
 
@@ -619,8 +625,9 @@ where
                         .mul(U256::from(DEFAULT_LEVERAGE));
 
                     call_with_max_retries!(
-                        3, 
-                        self.increase_position_leverage(&client, &position, borrow_amount).await
+                        3,
+                        self.increase_position_leverage(&client, &position, borrow_amount)
+                            .await
                     )?;
                 }
 

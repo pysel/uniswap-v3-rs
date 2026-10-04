@@ -24,8 +24,7 @@ const REHEDGE_INTERVAL_SECONDS: u64 = 60;
 
 // Revert Lend on Base (USDC vault), https://docs.revert.finance
 const REVERT_VAULT: Address = address!("0x36AEAe0E411a1E28372e0d66f02E57744EbE7599");
-const REVERT_LEVERAGE_TRANSFORMER: Address =
-    address!("0x5e97A478184993D3E376eec00B603F80463D9B23");
+const REVERT_LEVERAGE_TRANSFORMER: Address = address!("0x5e97A478184993D3E376eec00B603F80463D9B23");
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
