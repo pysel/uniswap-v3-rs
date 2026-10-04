@@ -2,6 +2,10 @@ use alloy::{
     primitives::{Address, U256},
     providers::Provider,
 };
+use uniswap_v3_math::{
+    sqrt_price_math::{_get_amount_0_delta, _get_amount_1_delta},
+    tick_math::get_sqrt_ratio_at_tick,
+};
 
 use crate::{errors::UniswapV3Error, objects::PositionsReturn};
 
@@ -93,11 +97,6 @@ impl Position {
     }
 
     #[must_use]
-    pub const fn chain_id(&self) -> u64 {
-        self.manager.chain_id()
-    }
-
-    #[must_use]
     pub const fn token_id(&self) -> U256 {
         self.token_id
     }
@@ -174,4 +173,34 @@ impl Position {
             .await?;
         Ok(TokenAmounts { amount0, amount1 })
     }
+}
+
+/// Principal token amounts held by `liquidity` over `[tick_lower, tick_upper)` at `sqrt_price_x96`.
+pub(crate) fn token_amounts_for_liquidity(
+    sqrt_price_x96: U256,
+    tick_lower: i32,
+    tick_upper: i32,
+    liquidity: u128,
+) -> Result<TokenAmounts, UniswapV3Error> {
+    let sqrt_price_lower_x96 = get_sqrt_ratio_at_tick(tick_lower)?;
+    let sqrt_price_upper_x96 = get_sqrt_ratio_at_tick(tick_upper)?;
+
+    let (amount0, amount1) = if sqrt_price_x96 <= sqrt_price_lower_x96 {
+        (
+            _get_amount_0_delta(sqrt_price_lower_x96, sqrt_price_upper_x96, liquidity, false)?,
+            U256::ZERO,
+        )
+    } else if sqrt_price_x96 < sqrt_price_upper_x96 {
+        (
+            _get_amount_0_delta(sqrt_price_x96, sqrt_price_upper_x96, liquidity, false)?,
+            _get_amount_1_delta(sqrt_price_lower_x96, sqrt_price_x96, liquidity, false)?,
+        )
+    } else {
+        (
+            U256::ZERO,
+            _get_amount_1_delta(sqrt_price_lower_x96, sqrt_price_upper_x96, liquidity, false)?,
+        )
+    };
+
+    Ok(TokenAmounts { amount0, amount1 })
 }

@@ -15,35 +15,23 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct QuoterV2 {
-    chain_id: u64,
-    address: Address,
-}
+pub struct QuoterV2(Address);
 
 impl QuoterV2 {
-    pub(crate) fn new(chain_id: u64, address: Address) -> Result<Self, Error> {
-        if chain_id == 0 {
-            return Err(Error::Invalid("CHAIN_ID"));
-        }
-
-        Ok(Self { chain_id, address })
+    pub(crate) fn new(address: Address) -> Self {
+        Self(address)
     }
 
     pub fn from_chain(chain_id: u64) -> Option<Self> {
         QUOTER_V2_ADDRESSES
             .get(&chain_id)
             .copied()
-            .and_then(|address| Self::new(chain_id, address).ok())
-    }
-
-    #[must_use]
-    pub const fn chain_id(&self) -> u64 {
-        self.chain_id
+            .and_then(|address| Some(Self::new(address)))
     }
 
     #[must_use]
     pub const fn address(&self) -> Address {
-        self.address
+        self.0
     }
 
     pub(crate) async fn quote_exact_input<P: Provider>(
@@ -52,7 +40,7 @@ impl QuoterV2 {
         params: QuoteExactInputParams,
     ) -> Result<QuoteExactInputResult, UniswapV3Error> {
         let path = params.path.bytes(false).map_err(UniswapV3Error::from)?;
-        let result = QuoterV2Contract::new(self.address, provider)
+        let result = QuoterV2Contract::new(self.address(), provider)
             .quoteExactInput(path, params.amount_in)
             .call()
             .await
@@ -81,7 +69,7 @@ impl QuoterV2 {
             fee: U24::from(fee),
             sqrtPriceLimitX96: params.sqrt_price_limit_x96,
         };
-        let result = QuoterV2Contract::new(self.address, provider)
+        let result = QuoterV2Contract::new(self.address(), provider)
             .quoteExactInputSingle(abi_params)
             .call()
             .await
@@ -104,7 +92,7 @@ impl QuoterV2 {
         params: QuoteExactOutputParams,
     ) -> Result<QuoteExactOutputResult, UniswapV3Error> {
         let path = params.path.bytes(true).map_err(UniswapV3Error::from)?;
-        let result = QuoterV2Contract::new(self.address, provider)
+        let result = QuoterV2Contract::new(self.address(), provider)
             .quoteExactOutput(path, params.amount_out)
             .call()
             .await
@@ -133,7 +121,7 @@ impl QuoterV2 {
             fee: U24::from(fee),
             sqrtPriceLimitX96: params.sqrt_price_limit_x96,
         };
-        let result = QuoterV2Contract::new(self.address, provider)
+        let result = QuoterV2Contract::new(self.address(), provider)
             .quoteExactOutputSingle(abi_params)
             .call()
             .await

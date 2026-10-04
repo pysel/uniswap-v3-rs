@@ -1,11 +1,11 @@
-use std::{borrow::BorrowMut, time::Duration};
+use std::time::Duration;
 
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::U256;
 use ethers_signers::Signer;
 use hyperliquid_rust_sdk::{
     AssetPosition, BaseUrl, ExchangeClient, ExchangeDataStatus, ExchangeResponseStatus,
-    FilledOrder, InfoClient, MarketCloseParams, MarketOrderParams, UserStateResponse,
+    FilledOrder, InfoClient, MarketOrderParams, UserStateResponse,
 };
 use tokio::{sync::watch, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -109,26 +109,6 @@ impl HyperliquidHedger {
             .universe
             .iter()
             .any(|item| item.name == asset)
-    }
-
-    fn required_leverage(
-        target_notional_usd: f64,
-        usable_collateral_usd: f64,
-    ) -> Result<f64, HedgerError> {
-        if !target_notional_usd.is_finite() || target_notional_usd < 0.0 {
-            return Err(HedgerError::NumericConversion(format!(
-                "invalid target notional: {target_notional_usd}"
-            )));
-        }
-        if !usable_collateral_usd.is_finite() || usable_collateral_usd < 0.0 {
-            return Err(HedgerError::NumericConversion(format!(
-                "invalid usable collateral: {usable_collateral_usd}"
-            )));
-        }
-        if usable_collateral_usd == 0.0 {
-            return Ok(f64::INFINITY);
-        }
-        Ok(target_notional_usd / usable_collateral_usd)
     }
 
     fn exchange_status(
@@ -253,7 +233,7 @@ impl HyperliquidHedger {
     pub async fn hedge(
         &self,
         token: &Token,
-        target_raw_size: U256
+        target_raw_size: U256,
     ) -> Result<Option<Hedge>, HedgerError> {
         // Clone out so the non-`Send` watch guard is dropped before any `.await`.
         let current_hedge = self.status.borrow().get_hedge(token).cloned();
@@ -291,24 +271,18 @@ impl HyperliquidHedger {
         let new_size = f64_to_raw(token, (current_size + filled).max(0.0))?;
 
         if new_size.is_zero() {
-            return Ok(None)
+            return Ok(None);
         }
 
         let new_hedge = match current_hedge {
-            Some(hedge) => {
-                hedge
-                    .increase_fees(fees_paid)
-                    .update_size(new_size)
-            },
-            None => {
-                Hedge::new(
-                    VENUE.to_string(), 
-                    token.clone(),
-                    HedgeSide::Short, 
-                    new_size, 
-                    fees_paid
-                )
-            }
+            Some(hedge) => hedge.increase_fees(fees_paid).update_size(new_size),
+            None => Hedge::new(
+                VENUE.to_string(),
+                token.clone(),
+                HedgeSide::Short,
+                new_size,
+                fees_paid,
+            ),
         };
 
         Ok(Some(new_hedge))
@@ -317,7 +291,7 @@ impl HyperliquidHedger {
     async fn base_to_usd(&self, asset: &str, base_delta: f64) -> Result<f64, HedgerError> {
         let mid = self.mid_price(asset).await?;
         let usd_delta = base_delta * mid;
-        return Ok(usd_delta)
+        return Ok(usd_delta);
     }
 
     async fn cost_of_fill(&self, fill: &FilledOrder) -> Result<U256, HedgerError> {
@@ -344,36 +318,6 @@ impl HyperliquidHedger {
             .await
             .map_err(|error| HedgerError::OrderFailed(error.to_string()))?;
         Self::filled_order(response)
-    }
-
-    async fn load_exposure(
-        &self,
-        position: &Position,
-    ) -> Result<(Token, Token, U256, U256), HedgerError> {
-        if position.chain_id != self.client.chain_id() {
-            return Err(HedgerError::Uniswap(format!(
-                "position chain {} does not match client chain {}",
-                position.chain_id,
-                self.client.chain_id()
-            )));
-        }
-
-        let pool = Pool::from_address(position.pool, &self.client)
-            .await
-            .map_err(|error| HedgerError::Uniswap(error.to_string()))?;
-
-        let amounts = self
-            .client
-            .compute_current_token_amounts(position.pool, position.position_id)
-            .await
-            .map_err(|error| HedgerError::Uniswap(error.to_string()))?;
-
-        Ok((
-            pool.token0().clone(),
-            pool.token1().clone(),
-            amounts.amount0,
-            amounts.amount1,
-        ))
     }
 
     async fn cleanup(&self, status: &HedgeStatus) -> Result<(), HedgerError> {
@@ -404,32 +348,32 @@ impl HyperliquidHedger {
 
     fn current_hedge_status_with_error(&self, error: HedgerError) -> HedgeStatus {
         let current = self.status.borrow();
-        let new_status = current
-            .clone()
-            .with_error(error);
+        let new_status = current.clone().with_error(error);
 
         return new_status;
     }
 
     async fn hedge_position(&self, position: &Position) -> HedgeStatus {
-        let (token0, token1, amount0, amount1) = match self.load_exposure(position).await {
+        let (token0, token1, amount0, amount1) = match self
+            .client
+            .position_exposure(position.pool, position.position_id)
+            .await
+        {
             Ok(exposure) => exposure,
             Err(error) => {
-                return self.current_hedge_status_with_error(error)
+                return self
+                    .current_hedge_status_with_error(HedgerError::Uniswap(error.to_string()));
             }
         };
 
         let token0_hedge = match self.hedge(&token0, amount0).await {
             Ok(hedge) => hedge,
-            Err(error) => {
-                return self.current_hedge_status_with_error(error)
-            }
+            Err(error) => return self.current_hedge_status_with_error(error),
         };
+
         let token1_hedge = match self.hedge(&token1, amount1).await {
             Ok(hedge) => hedge,
-            Err(error) => {
-                return self.current_hedge_status_with_error(error)
-            }
+            Err(error) => return self.current_hedge_status_with_error(error),
         };
 
         HedgeStatus::hedged(token0_hedge, token1_hedge)
@@ -449,12 +393,12 @@ impl HyperliquidHedger {
             let next = match current {
                 None => match self.cleanup(&current_status).await {
                     Ok(()) => HedgeStatus::idle(),
-                    Err(error) => self.current_hedge_status_with_error(error)
+                    Err(error) => self.current_hedge_status_with_error(error),
                 },
                 Some(_) if current_status.has_error() => {
                     match self.cleanup(&current_status).await {
                         Ok(()) => HedgeStatus::idle(),
-                        Err(error) => self.current_hedge_status_with_error(error)
+                        Err(error) => self.current_hedge_status_with_error(error),
                     }
                 }
                 Some(position) => self.hedge_position(&position).await,

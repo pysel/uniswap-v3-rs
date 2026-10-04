@@ -18,6 +18,9 @@ pub enum UniswapV3Error {
     Math(String),
     #[error("signer required")]
     SignerRequired,
+    #[cfg(feature = "revert")]
+    #[error("revert lend: {0}")]
+    Revert(String),
 }
 
 impl From<uniswap_v3_math::error::UniswapV3MathError> for UniswapV3Error {

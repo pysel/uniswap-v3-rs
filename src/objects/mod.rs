@@ -9,6 +9,8 @@ mod router;
 mod token;
 
 pub(crate) use gas::send_with_gas_multiplier;
+#[cfg(feature = "revert")]
+pub(crate) use gas::send_with_gas_multiplier_map_err;
 
 pub(crate) use abi_definitions::Erc20 as Erc20Contract;
 pub(crate) use abi_definitions::NonfungiblePositionManager as NpmContract;
@@ -34,6 +36,7 @@ pub use abi_definitions::IV3SwapRouter::{
 pub use factory::Factory;
 pub use npm::NonfungiblePositionManager;
 pub use pool::Pool;
+pub(crate) use position::token_amounts_for_liquidity;
 pub use position::{Position, PositionState, TokenAmounts};
 pub use quoter::QuoterV2;
 pub use router::SwapRouter;

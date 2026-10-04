@@ -1,3 +1,8 @@
+#[cfg(feature = "revert")]
+use std::ops::Mul;
+
+#[cfg(feature = "revert")]
+use alloy::primitives::utils::parse_units;
 use alloy::primitives::Address;
 use alloy_primitives::U256;
 use tokio::sync::watch;
@@ -17,6 +22,11 @@ use crate::{
         utils::{apply_bps_above, apply_bps_below},
     },
 };
+#[cfg(feature = "revert")]
+use crate::client::USD_DECIMALS;
+
+#[cfg(feature = "revert")]
+const DEFAULT_LEVERAGE: u32 = 2;
 
 /// Retries an async expression up to `max_retries` times after the first failure.
 ///
@@ -76,6 +86,9 @@ pub struct ConstantWindowStrategy<T0, T1> {
     // Runtime bookkeeping for the active NPM position.
     position: Option<Position>,
 
+    // With leverage
+    leveraged: bool,
+
     // Cancellation token for the strategy.
     cancellation_token: CancellationToken,
 }
@@ -96,6 +109,7 @@ where
         max_token1_amount_as_portfolio_fraction: f64,
         price_source_token0: T0,
         price_source_token1: T1,
+        leveraged: bool,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
@@ -108,6 +122,7 @@ where
             price_source_token0,
             price_source_token1,
             position: None,
+            leveraged,
             cancellation_token,
         }
     }
@@ -183,6 +198,12 @@ where
         let owner = client
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
+
+        #[cfg(feature = "revert")]
+        if self.leveraged {
+            self.exit_revert_positions(client, pool).await?;
+        }
+
         let _ = client
             .position_manager()
             .ok_or(StrategyError::PositionManagerRequired)?;
@@ -201,6 +222,46 @@ where
         }
 
         self.position = None;
+        Ok(())
+    }
+
+    #[cfg(feature = "revert")]
+    /// Deleverages and withdraws every owner loan in the Revert vault that matches the exact
+    /// pool key, returning the NFTs to the signer so they can be closed.
+    pub async fn exit_revert_positions(
+        &self,
+        client: &UniswapV3Client,
+        pool: &Pool,
+    ) -> Result<(), StrategyError> {
+        if !self.leveraged {
+            return Ok(());
+        }
+
+        let owner = client
+            .signer_address()
+            .ok_or(StrategyError::SignerRequired)?;
+
+        let revert_position_ids = client.revert_loans(owner).await?;
+        for revert_position_id in revert_position_ids {
+            let npm_position = client.get_position(revert_position_id).await?;
+            if !Self::matches_pool(&npm_position, pool) {
+                continue;
+            }
+
+            let position = Position::new(
+                0.0,
+                revert_position_id,
+                pool.address(),
+                client.chain_id(),
+                npm_position.tick_lower(),
+                npm_position.tick_upper(),
+            );
+
+            self.remove_position_leverage(client, &position).await?;
+
+            info!(%position, "revert position exited");
+        }
+
         Ok(())
     }
 
@@ -238,11 +299,20 @@ where
             ));
         }
 
+        #[cfg(feature = "revert")]
+        let has_revert = client.revert_lend().is_some();
+        #[cfg(not(feature = "revert"))]
+        let has_revert = false;
+        if self.leveraged && !has_revert {
+            return Err(StrategyError::MissingRevert);
+        }
+
         let _ = Self::price(price0, price1)?;
 
         let owner = client
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
+
         let npm = client
             .position_manager()
             .ok_or(StrategyError::PositionManagerRequired)?;
@@ -323,6 +393,7 @@ where
         let owner = client
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
+
         let mid = Self::price(price0, price1)?;
         let (lower_tick, upper_tick) =
             Self::ticks_from_external_mid(pool, mid, self.length_below_mid, self.length_above_mid)?;
@@ -371,6 +442,72 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "revert")]
+    pub async fn increase_position_leverage(
+        &mut self,
+        client: &UniswapV3Client,
+        position: &Position,
+        borrow_amount: U256,
+    ) -> Result<(), StrategyError> {
+        if borrow_amount.is_zero() {
+            return Ok(())
+        }
+
+        if let Some(revert_lend) = client.revert_lend()
+            && client.get_position_owner(position.position_id).await? != revert_lend.vault() {
+
+            client
+                .deposit_to_revert(position, client.signer_address())
+                .await?
+                .token_id
+                .await?;
+        }
+
+        // A previous attempt may have borrowed even if awaiting its receipt failed.
+        if !client
+            .revert_loan_debt_shares(position.position_id)
+            .await?
+            .is_zero()
+        {
+            return Ok(());
+        }
+
+        client
+            .leverage_up(position, borrow_amount, BPS::from(50))
+            .await?
+            .result
+            .await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "revert")]
+    pub async fn remove_position_leverage(
+        &self,
+        client: &UniswapV3Client,
+        position: &Position,
+    ) -> Result<(), StrategyError> {
+        if !client.revert_loan_debt_shares(position.position_id).await?.is_zero() {
+            client
+                .leverage_down(position, BPS::from(100_00), BPS::from(50))
+                .await?
+                .result
+                .await?;
+        }
+
+        if let Some(revert_lend) = client.revert_lend()
+            && client.get_position_owner(position.position_id).await? == revert_lend.vault() {
+
+            client
+                .withdraw_from_revert(position, client.signer_address())
+                .await?
+                .token_id
+                .await?;
+        }
+
+        Ok(())
+    }
+
     /// Checks bounds for the tracked position; closes it when they fail.
     pub async fn check_position(
         &mut self,
@@ -392,6 +529,11 @@ where
             current_price = current,
             "constant window position rebalancing"
         );
+
+        #[cfg(feature = "revert")]
+        if self.leveraged {
+            self.remove_position_leverage(client, &position).await?;
+        }
 
         self.close_position(client).await
     }
@@ -429,17 +571,19 @@ where
         pool_address: Address,
     ) -> Result<(), StrategyError> {
         let mut pool = Pool::from_address(pool_address, &client).await?;
+
         let mut price0 = self
             .price_source_token0
             .price(pool.token0().clone())
             .await?;
+
         let mut price1 = self
             .price_source_token1
             .price(pool.token1().clone())
             .await?;
 
-        self.pre_run(&client, &pool).await?;
         self.validate(&client, &pool, &price0, &price1).await?;
+        self.pre_run(&client, &pool).await?;
 
         loop {
             if self.position.is_some() {
@@ -457,6 +601,29 @@ where
                     self.set_position(&client, &pool, &price0, &price1).await
                 )?;
 
+                #[cfg(feature = "revert")]
+                if let Some(position) = self.position && self.leveraged {
+                    let price0 = float_to_u256(*price0.borrow(), USD_DECIMALS);
+                    let price1 = float_to_u256(*price1.borrow(), USD_DECIMALS);
+
+                    let borrow_amount = client
+                        .estimate_position_value(
+                            pool_address,
+                            position.position_id,
+                            price0,
+                            price1,
+                            pool.token0().decimals,
+                            pool.token1().decimals,
+                        )
+                        .await?
+                        .mul(U256::from(DEFAULT_LEVERAGE));
+
+                    call_with_max_retries!(
+                        3, 
+                        self.increase_position_leverage(&client, &position, borrow_amount).await
+                    )?;
+                }
+
                 // Send current position to watch channel
                 position_watch_sender
                     .send(self.position)
@@ -465,7 +632,13 @@ where
 
             tokio::select! {
                 _ = self.cancellation_token.cancelled() => {
-                    self.close_position(&client).await?;
+                    #[cfg(feature = "revert")]
+                    if let Some(position) = self.position && self.leveraged {
+                        call_with_max_retries!(3, self.remove_position_leverage(&client, &position).await)?;
+                    }
+
+                    call_with_max_retries!(3, self.close_position(&client).await)?;
+
                     return Ok(());
                 }
                 result = price0.changed() => {
@@ -526,6 +699,7 @@ pub struct ConstantWindowStrategyBuilder<T0 = (), T1 = ()> {
     max_token1_amount_as_portfolio_fraction: Option<f64>,
     price_source_token0: Option<T0>,
     price_source_token1: Option<T1>,
+    leveraged: bool,
     cancellation_token: Option<CancellationToken>,
 }
 
@@ -542,6 +716,7 @@ impl ConstantWindowStrategy<(), ()> {
             price_source_token0: None,
             price_source_token1: None,
             cancellation_token: None,
+            leveraged: false,
         }
     }
 }
@@ -609,6 +784,7 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             price_source_token0: Some(price_source_token0),
             price_source_token1: self.price_source_token1,
             cancellation_token: self.cancellation_token,
+            leveraged: self.leveraged,
         }
     }
 
@@ -630,12 +806,18 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             price_source_token0: self.price_source_token0,
             price_source_token1: Some(price_source_token1),
             cancellation_token: self.cancellation_token,
+            leveraged: self.leveraged,
         }
     }
 
     #[must_use]
     pub fn cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
         self.cancellation_token = Some(cancellation_token);
+        self
+    }
+
+    pub fn leveraged(mut self) -> Self {
+        self.leveraged = true;
         self
     }
 }
@@ -682,6 +864,8 @@ where
             UniswapV3Error::RequiredFieldMissing("CANCELLATION_TOKEN".to_string())
         })?;
 
+        let leveraged = self.leveraged;
+
         Ok(ConstantWindowStrategy::new(
             length_below_mid,
             length_above_mid,
@@ -691,9 +875,28 @@ where
             max_token1_amount_as_portfolio_fraction,
             price_source_token0,
             price_source_token1,
+            leveraged,
             cancellation_token,
         ))
     }
+}
+
+#[cfg(feature = "revert")]
+/// Converts a human `amount` into a fixed-point `U256` scaled by `10^decimals`
+/// (same rounding as [`TokenExt::from_amount`]).
+///
+/// # Panics
+/// If `amount` is negative or non-finite, `decimals > 77`, or the result overflows.
+pub fn float_to_u256(amount: f64, decimals: u8) -> U256 {
+    assert!(
+        amount.is_finite() && amount >= 0.0,
+        "amount must be finite and non-negative"
+    );
+
+    let formatted = format!("{amount:.prec$}", prec = usize::from(decimals));
+    parse_units(&formatted, decimals)
+        .expect("amount overflowed decimal scale")
+        .into()
 }
 
 #[cfg(test)]
@@ -746,6 +949,7 @@ mod tests {
             fraction1,
             DummyPriceSource,
             DummyPriceSource,
+            false,
             CancellationToken::new(),
         )
     }

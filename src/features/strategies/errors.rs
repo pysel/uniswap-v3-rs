@@ -27,6 +27,8 @@ pub enum StrategyError {
         required: U256,
         available: U256,
     },
+    #[error("leveraged strategy should be passed a client with revert")]
+    MissingRevert,
     #[error("price source channel closed")]
     PriceSourceClosed,
     #[error("max retries exceeded: {0}")]

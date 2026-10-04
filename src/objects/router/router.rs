@@ -2,7 +2,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::Provider,
 };
-use uniswap_sdk_core::prelude::{Error, SWAP_ROUTER_02_ADDRESSES};
+use uniswap_sdk_core::prelude::SWAP_ROUTER_02_ADDRESSES;
 
 use crate::{
     calltypes::{
@@ -20,35 +20,23 @@ use crate::objects::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SwapRouter {
-    chain_id: u64,
-    address: Address,
-}
+pub struct SwapRouter(Address);
 
 impl SwapRouter {
-    pub(crate) fn new(chain_id: u64, address: Address) -> Result<Self, Error> {
-        if chain_id == 0 {
-            return Err(Error::Invalid("CHAIN_ID"));
-        }
-
-        Ok(Self { chain_id, address })
+    pub(crate) fn new(address: Address) -> Self {
+        Self(address)
     }
 
     pub fn from_chain(chain_id: u64) -> Option<Self> {
         SWAP_ROUTER_02_ADDRESSES
             .get(&chain_id)
             .copied()
-            .and_then(|address| Self::new(chain_id, address).ok())
-    }
-
-    #[must_use]
-    pub const fn chain_id(&self) -> u64 {
-        self.chain_id
+            .map(Self::new)
     }
 
     #[must_use]
     pub const fn address(&self) -> Address {
-        self.address
+        self.0
     }
 
     pub(crate) async fn exact_input<P: Provider>(
@@ -58,7 +46,7 @@ impl SwapRouter {
         value: U256,
         gas_multiplier: Option<f64>,
     ) -> Result<ExactInputResponse, UniswapV3Error> {
-        let contract = SwapRouterContract::new(self.address, provider);
+        let contract = SwapRouterContract::new(self.address(), provider);
         let call = contract.exactInput(params).value(value);
         let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
@@ -75,7 +63,7 @@ impl SwapRouter {
         value: U256,
         gas_multiplier: Option<f64>,
     ) -> Result<ExactInputSingleResponse, UniswapV3Error> {
-        let contract = SwapRouterContract::new(self.address, provider);
+        let contract = SwapRouterContract::new(self.address(), provider);
         let call = contract.exactInputSingle(params).value(value);
         let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
@@ -92,7 +80,7 @@ impl SwapRouter {
         value: U256,
         gas_multiplier: Option<f64>,
     ) -> Result<ExactOutputResponse, UniswapV3Error> {
-        let contract = SwapRouterContract::new(self.address, provider);
+        let contract = SwapRouterContract::new(self.address(), provider);
         let call = contract.exactOutput(params).value(value);
         let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 
@@ -109,7 +97,7 @@ impl SwapRouter {
         value: U256,
         gas_multiplier: Option<f64>,
     ) -> Result<ExactOutputSingleResponse, UniswapV3Error> {
-        let contract = SwapRouterContract::new(self.address, provider);
+        let contract = SwapRouterContract::new(self.address(), provider);
         let call = contract.exactOutputSingle(params).value(value);
         let pending = send_with_gas_multiplier(call, gas_multiplier).await?;
 

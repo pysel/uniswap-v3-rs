@@ -1,6 +1,9 @@
 use std::{env, error::Error};
 
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{
+    primitives::{Address, address},
+    signers::local::PrivateKeySigner,
+};
 use tokio_util::sync::CancellationToken;
 use uniswap_sdk_core::prelude::BaseCurrency;
 
@@ -15,10 +18,15 @@ use uniswap_v3_rs::{
 use tracing::{info, warn};
 
 const FEE: u32 = 3000;
-const WINDOW_BPS: BPS = BPS::new(100);
+const WINDOW_BPS: BPS = BPS::new(1000);
 const REBALANCE_BPS: BPS = BPS::new(50);
 const MAX_HEDGE_LEVERAGE: f64 = 3.0;
 const REHEDGE_INTERVAL_SECONDS: u64 = 60;
+
+// Revert Lend on Base (USDC vault), https://docs.revert.finance
+const REVERT_VAULT: Address = address!("0x36AEAe0E411a1E28372e0d66f02E57744EbE7599");
+const REVERT_LEVERAGE_TRANSFORMER: Address =
+    address!("0x5e97A478184993D3E376eec00B603F80463D9B23");
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -42,12 +50,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .rpc_url(rpc_url)
         .signer(signer)
         .gas_multiplier(1.05)
+        .revert_lend(REVERT_VAULT, REVERT_LEVERAGE_TRANSFORMER)
         .build()
         .await?;
 
     let owner = client
         .signer_address()
         .expect("signer required for constant-window strategy");
+
     let chain_id = client.get_chain_id().await?;
     let npm = client
         .position_manager()
@@ -59,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let weth = WETH::on_chain(chain_id).expect("WETH9 not deployed on chain");
     let pool = client.get_pool(weth.clone(), usdc.clone(), FEE).await?;
 
-    // Mainnet USDC/WETH sorts as token0=USDC, token1=WETH.
+    // Base USDC/WETH sorts as token0=WETH, token1=USDC.
     assert_eq!(pool.token0().address(), weth.address());
     assert_eq!(pool.token1().address(), usdc.address());
 
@@ -82,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .max_token1_amount_as_portfolio_fraction(1.0)
         .price_source_token0(BinancePriceSource::new())
         .price_source_token1(StablePriceSource::new())
+        .leveraged()
         .cancellation_token(cancellation_token.clone())
         .build()?;
 

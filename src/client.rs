@@ -1,16 +1,11 @@
+use alloy::primitives::U256;
+use alloy::primitives::aliases::U160;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::Address,
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
-use uniswap_v3_math::{
-    sqrt_price_math::{_get_amount_0_delta, _get_amount_1_delta},
-    tick_math::get_sqrt_ratio_at_tick,
-};
-
-use alloy::primitives::U256;
-use alloy::primitives::aliases::U160;
 
 use crate::{
     errors::UniswapV3Error,
@@ -36,9 +31,14 @@ use crate::{
     },
     objects::{
         CollectParams, CreatePositionParams, DecreaseLiquidityParams, IncreaseLiquidityParams,
-        NonfungiblePositionManager, Position, TokenAmounts,
+        NonfungiblePositionManager, Position, TokenAmounts, token_amounts_for_liquidity,
     },
 };
+
+#[cfg(feature = "revert")]
+use crate::revert::RevertLend;
+
+pub const USD_DECIMALS: u8 = 6;
 
 #[derive(Clone, Debug)]
 pub struct UniswapV3Client {
@@ -51,6 +51,8 @@ pub struct UniswapV3Client {
     position_manager: Option<NonfungiblePositionManager>,
     factory: Factory,
     gas_multiplier: Option<f64>,
+    #[cfg(feature = "revert")]
+    revert_lend: Option<RevertLend>,
 }
 
 impl UniswapV3Client {
@@ -94,6 +96,11 @@ impl UniswapV3Client {
         self.gas_multiplier
     }
 
+    #[cfg(feature = "revert")]
+    pub fn revert_lend(&self) -> Option<&RevertLend> {
+        self.revert_lend.as_ref()
+    }
+
     pub async fn get_chain_id(&self) -> Result<u64, UniswapV3Error> {
         self.provider
             .get_chain_id()
@@ -126,6 +133,13 @@ impl UniswapV3Client {
             .await
     }
 
+    /// Returns the current NPM `ownerOf(token_id)` (the Revert vault while the NFT is deposited).
+    pub async fn get_position_owner(&self, token_id: U256) -> Result<Address, UniswapV3Error> {
+        self.require_position_manager()?
+            .owner_of(&self.provider, token_id)
+            .await
+    }
+
     /// Computes the principal token amounts obtainable by burning all current
     /// liquidity in an NPM position at the pool's current price.
     ///
@@ -133,11 +147,11 @@ impl UniswapV3Client {
     /// [`Position::collectable_amounts`] separately for those amounts.
     pub async fn compute_current_token_amounts(
         &self,
-        pool_address: Address,
+        pool: &Pool,
         position_id: U256,
     ) -> Result<TokenAmounts, UniswapV3Error> {
-        let pool = Pool::from_address(pool_address, self).await?;
         let position = self.get_position(position_id).await?;
+        let pool_address = pool.address();
 
         if position.token0() != pool.token0().address()
             || position.token1() != pool.token1().address()
@@ -150,37 +164,32 @@ impl UniswapV3Client {
 
         let state = position.state(&self.provider).await?;
         let sqrt_price_x96 = U256::from(pool.sqrt_price_x96(&self.provider).await?);
-        let sqrt_price_lower_x96 = get_sqrt_ratio_at_tick(position.tick_lower())?;
-        let sqrt_price_upper_x96 = get_sqrt_ratio_at_tick(position.tick_upper())?;
 
-        let (amount0, amount1) = if sqrt_price_x96 <= sqrt_price_lower_x96 {
-            (
-                _get_amount_0_delta(
-                    sqrt_price_lower_x96,
-                    sqrt_price_upper_x96,
-                    state.liquidity,
-                    false,
-                )?,
-                U256::ZERO,
-            )
-        } else if sqrt_price_x96 < sqrt_price_upper_x96 {
-            (
-                _get_amount_0_delta(sqrt_price_x96, sqrt_price_upper_x96, state.liquidity, false)?,
-                _get_amount_1_delta(sqrt_price_lower_x96, sqrt_price_x96, state.liquidity, false)?,
-            )
-        } else {
-            (
-                U256::ZERO,
-                _get_amount_1_delta(
-                    sqrt_price_lower_x96,
-                    sqrt_price_upper_x96,
-                    state.liquidity,
-                    false,
-                )?,
-            )
-        };
+        token_amounts_for_liquidity(
+            sqrt_price_x96,
+            position.tick_lower(),
+            position.tick_upper(),
+            state.liquidity,
+        )
+    }
 
-        Ok(TokenAmounts { amount0, amount1 })
+    pub async fn position_exposure(
+        &self,
+        pool_address: Address,
+        position_id: U256,
+    ) -> Result<(Token, Token, U256, U256), UniswapV3Error> {
+        let pool = Pool::from_address(pool_address, &self).await?;
+
+        let amounts = self
+            .compute_current_token_amounts(&pool, position_id)
+            .await?;
+
+        Ok((
+            pool.token0().clone(),
+            pool.token1().clone(),
+            amounts.amount0,
+            amounts.amount1,
+        ))
     }
 
     pub async fn get_position_count(&self, owner: Address) -> Result<U256, UniswapV3Error> {
@@ -406,25 +415,62 @@ impl UniswapV3Client {
             .await
     }
 
+    /// Estimates the USD value of an NPM position, scaled by `10^USD_DECIMALS`.
+    ///
+    /// `price0`/`price1` are USD prices of one whole token, scaled by `10^USD_DECIMALS`;
+    /// `decimals0`/`decimals1` are the token decimals used to normalize raw amounts:
+    /// `amount0 * price0 / 10^decimals0 + amount1 * price1 / 10^decimals1`.
+    /// Excludes accrued fees, like [`Self::compute_current_token_amounts`].
+    pub async fn estimate_position_value(
+        &self,
+        pool_address: Address,
+        position_id: U256,
+        price0: U256,
+        price1: U256,
+        decimals0: u8,
+        decimals1: u8,
+    ) -> Result<U256, UniswapV3Error> {
+        let pool = Pool::from_address(pool_address, self).await?;
+        let amounts = self
+            .compute_current_token_amounts(&pool, position_id)
+            .await?;
+
+        let usd_value = |amount: U256, price: U256, decimals: u8| {
+            amount
+                .checked_mul(price)
+                .map(|value| value / U256::from(10).pow(U256::from(decimals)))
+        };
+
+        usd_value(amounts.amount0, price0, decimals0)
+            .zip(usd_value(amounts.amount1, price1, decimals1))
+            .and_then(|(value0, value1)| value0.checked_add(value1))
+            .ok_or_else(|| UniswapV3Error::Math("position value overflowed".to_string()))
+    }
+
     fn require_swap_router(&self) -> Result<&SwapRouter, UniswapV3Error> {
         self.swap_router
             .as_ref()
             .ok_or_else(|| UniswapV3Error::BuildError("no swap router for this chain".to_string()))
     }
 
-    fn require_quoter(&self) -> Result<&QuoterV2, UniswapV3Error> {
+    pub(crate) fn require_quoter(&self) -> Result<&QuoterV2, UniswapV3Error> {
         self.quoter
             .as_ref()
             .ok_or_else(|| UniswapV3Error::BuildError("no QuoterV2 for this chain".to_string()))
     }
 
-    fn require_position_manager(&self) -> Result<&NonfungiblePositionManager, UniswapV3Error> {
+    pub(crate) fn require_position_manager(
+        &self,
+    ) -> Result<&NonfungiblePositionManager, UniswapV3Error> {
         self.position_manager.as_ref().ok_or_else(|| {
             UniswapV3Error::BuildError("no nonfungible position manager for this chain".to_string())
         })
     }
 
-    fn ensure_position_manager(&self, position: &Position) -> Result<(), UniswapV3Error> {
+    pub(crate) fn ensure_position_manager(
+        &self,
+        position: &Position,
+    ) -> Result<(), UniswapV3Error> {
         let manager = self.require_position_manager()?;
         if position.manager() != *manager {
             return Err(UniswapV3Error::BuildError(
@@ -434,6 +480,20 @@ impl UniswapV3Client {
 
         Ok(())
     }
+
+    #[cfg(feature = "revert")]
+    pub(crate) fn require_signer(&self) -> Result<Address, UniswapV3Error> {
+        self.signer_address().ok_or(UniswapV3Error::SignerRequired)
+    }
+
+    #[cfg(feature = "revert")]
+    pub(crate) fn require_revert_lend(&self) -> Result<&RevertLend, UniswapV3Error> {
+        self.revert_lend.as_ref().ok_or_else(|| {
+            UniswapV3Error::BuildError(
+                "no Revert Lend vault configured; use builder().revert_lend(..)".to_string(),
+            )
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -441,6 +501,8 @@ pub struct UniswapV3ClientBuilder {
     rpc_url: Option<String>,
     wallet: Option<EthereumWallet>,
     gas_multiplier: Option<f64>,
+    #[cfg(feature = "revert")]
+    revert_lend: Option<RevertLend>,
 }
 
 impl UniswapV3ClientBuilder {
@@ -461,6 +523,13 @@ impl UniswapV3ClientBuilder {
 
     pub fn gas_multiplier(mut self, gas_multiplier: f64) -> Self {
         self.gas_multiplier = Some(gas_multiplier);
+        self
+    }
+
+    /// Configures the Revert Lend `V3Vault` and the `LeverageTransformer` it allows.
+    #[cfg(feature = "revert")]
+    pub fn revert_lend(mut self, vault: Address, leverage_transformer: Address) -> Self {
+        self.revert_lend = Some(RevertLend::new(vault, leverage_transformer));
         self
     }
 
@@ -509,6 +578,8 @@ impl UniswapV3ClientBuilder {
             quoter,
             position_manager,
             gas_multiplier: self.gas_multiplier,
+            #[cfg(feature = "revert")]
+            revert_lend: self.revert_lend,
         })
     }
 }

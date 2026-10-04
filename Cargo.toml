@@ -41,7 +41,8 @@ hedger = [
     "dep:ethers-signers",
     "dep:hyperliquid_rust_sdk",
 ]
-revert = []
+# Revert functions take `strategies::Position`.
+revert = ["strategies"]
 
 [dependencies]
 alloy = { version = "2.2.0", features = ["json", "reqwest", "provider-http", "signer-local"] }

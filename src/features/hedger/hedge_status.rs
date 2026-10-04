@@ -1,7 +1,7 @@
-use std::{fmt::{Display, Formatter}, ops::Add};
+use std::fmt::{Display, Formatter};
 
 use alloy_primitives::U256;
-use uniswap_sdk_core::entities::{BaseCurrency, Token};
+use uniswap_sdk_core::entities::Token;
 
 use super::errors::HedgerError;
 
@@ -51,13 +51,7 @@ impl Display for Hedge {
 }
 
 impl Hedge {
-    pub fn new(
-        venue: String,
-        asset: Token,
-        side: HedgeSide,
-        size: U256,
-        fees_paid: U256,
-    ) -> Self {
+    pub fn new(venue: String, asset: Token, side: HedgeSide, size: U256, fees_paid: U256) -> Self {
         Self {
             venue,
             asset,
@@ -124,10 +118,7 @@ impl HedgeStatus {
     }
 
     #[must_use]
-    pub fn with_error(
-        self,
-        error: HedgerError,
-    ) -> Self {
+    pub fn with_error(self, error: HedgerError) -> Self {
         Self {
             token0_hedge: self.token0_hedge,
             token1_hedge: self.token1_hedge,
