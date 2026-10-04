@@ -219,8 +219,7 @@ Each `Hedge` leg records `venue`, `asset`, `side`, `margin`, `size`, and cumulat
 
 `HyperliquidHedger` is configured with a `UniswapV3Client` (to read on-chain NPM position state),
 a `PrivateKeySigner`, a `CancellationToken`, optional Hyperliquid [`BaseUrl`] (defaults to mainnet;
-use `BaseUrl::Testnet` for testnet), max leverage (`f64`, finite and strictly positive — the
-maximum leverage ratio the hedger may use), optional `slippage` (`f64` fraction of mid strictly
+use `BaseUrl::Testnet` for testnet), optional `slippage` (`f64` fraction of mid strictly
 between 0 and 1, default `0.01` — bounds market-order fill prices), and `rehedge_interval_seconds`
 (`u64`, strictly positive — how often to re-check the position and refresh the hedge). Its
 asynchronous builder consumes the private key to initialize and retain the Hyperliquid
@@ -233,9 +232,7 @@ On each position update or interval tick the hedger:
 2. Skips stablecoins (`TokenExt::is_stablecoin`); maps `WETH→ETH`, `WBTC→BTC`, else uppercase
 3. Runs `pre_run` before opening from an idle status to close existing Hyperliquid perps for those
    volatile assets
-4. Sequentially hedges token0 then token1 as shorts, deriving leverage from
-   `target_notional / (withdrawable + leg_margin_used)` and erroring when that ratio exceeds
-   `max_leverage` (or the venue max)
+4. Sequentially hedges token0 then token1 as shorts
 5. Rebalances only when `|target - actual| > max(target * user_cross_rate, $10 / mid)` —
    Hyperliquid rejects orders below $10 notional; zero targets close the short in full. At most
    one adjustment per token per cycle

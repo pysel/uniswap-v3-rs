@@ -20,7 +20,6 @@ use tracing::{info, warn};
 const FEE: u32 = 3000;
 const WINDOW_BPS: BPS = BPS::new(1000);
 const REBALANCE_BPS: BPS = BPS::new(50);
-const MAX_HEDGE_LEVERAGE: f64 = 3.0;
 const REHEDGE_INTERVAL_SECONDS: u64 = 60;
 
 // Revert Lend on Base (USDC vault), https://docs.revert.finance
@@ -108,7 +107,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .private_key(hedge_signer)
         .position(position_rx.clone())
         .base_url(BaseUrl::Testnet)
-        .max_leverage(MAX_HEDGE_LEVERAGE)
         .rehedge_interval_seconds(REHEDGE_INTERVAL_SECONDS)
         .cancellation_token(cancellation_token.clone())
         .build()
@@ -117,7 +115,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (hedger_handle, mut hedge_rx) = hedger.hedge()?;
     info!(
         %hedger_address,
-        max_leverage = MAX_HEDGE_LEVERAGE,
         rehedge_interval_seconds = REHEDGE_INTERVAL_SECONDS,
         "started Hyperliquid testnet hedger"
     );

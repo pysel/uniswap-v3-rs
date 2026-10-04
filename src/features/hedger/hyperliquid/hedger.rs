@@ -18,7 +18,7 @@ use crate::{
         Hedge, HedgeSide, HedgeStatus, Hedger, HedgerError,
         utils::{f64_to_raw, parse_f64, raw_to_f64, usd_to_atomic},
     },
-    objects::{Pool, TokenExt},
+    objects::TokenExt,
     strategies::Position,
 };
 
@@ -40,7 +40,6 @@ pub struct HyperliquidHedger {
     info_client: InfoClient,
     position: watch::Receiver<Option<Position>>,
     status: watch::Sender<HedgeStatus>,
-    max_leverage: f64,
     slippage: f64,
     rehedge_interval_seconds: u64,
     cancellation_token: CancellationToken,
@@ -54,16 +53,10 @@ impl HyperliquidHedger {
             private_key: None,
             position: None,
             base_url: BaseUrl::Mainnet,
-            max_leverage: None,
             slippage: None,
             rehedge_interval_seconds: None,
             cancellation_token: None,
         }
-    }
-
-    #[must_use]
-    pub fn max_leverage(&self) -> f64 {
-        self.max_leverage
     }
 
     #[must_use]
@@ -77,11 +70,6 @@ impl HyperliquidHedger {
     }
 
     fn validate(&self) -> Result<(), HedgerError> {
-        if !self.max_leverage.is_finite() || self.max_leverage <= 0.0 {
-            return Err(HedgerError::InvalidConfig(
-                "max leverage must be finite and strictly positive".to_string(),
-            ));
-        }
         if self.rehedge_interval_seconds == 0 {
             return Err(HedgerError::InvalidConfig(
                 "rehedge interval must be strictly positive".to_string(),
@@ -462,7 +450,6 @@ pub struct HyperliquidHedgerBuilder {
     private_key: Option<PrivateKeySigner>,
     position: Option<watch::Receiver<Option<Position>>>,
     base_url: BaseUrl,
-    max_leverage: Option<f64>,
     slippage: Option<f64>,
     rehedge_interval_seconds: Option<u64>,
     cancellation_token: Option<CancellationToken>,
@@ -491,12 +478,6 @@ impl HyperliquidHedgerBuilder {
     #[must_use]
     pub fn base_url(mut self, base_url: BaseUrl) -> Self {
         self.base_url = base_url;
-        self
-    }
-
-    #[must_use]
-    pub fn max_leverage(mut self, max_leverage: f64) -> Self {
-        self.max_leverage = Some(max_leverage);
         self
     }
 
@@ -532,9 +513,6 @@ impl HyperliquidHedgerBuilder {
         let position = self
             .position
             .ok_or_else(|| HedgerError::RequiredFieldMissing("POSITION".to_string()))?;
-        let max_leverage = self
-            .max_leverage
-            .ok_or_else(|| HedgerError::RequiredFieldMissing("MAX_LEVERAGE".to_string()))?;
         let rehedge_interval_seconds = self.rehedge_interval_seconds.ok_or_else(|| {
             HedgerError::RequiredFieldMissing("REHEDGE_INTERVAL_SECONDS".to_string())
         })?;
@@ -544,11 +522,6 @@ impl HyperliquidHedgerBuilder {
         let base_url = self.base_url;
         let slippage = self.slippage.unwrap_or(DEFAULT_SLIPPAGE);
 
-        if !max_leverage.is_finite() || max_leverage <= 0.0 {
-            return Err(HedgerError::InvalidConfig(
-                "max leverage must be finite and strictly positive".to_string(),
-            ));
-        }
         if !slippage.is_finite() || slippage <= 0.0 || slippage >= 1.0 {
             return Err(HedgerError::InvalidConfig(
                 "slippage must be a fraction strictly between 0 and 1".to_string(),
@@ -583,7 +556,6 @@ impl HyperliquidHedgerBuilder {
             info_client,
             position,
             status,
-            max_leverage,
             slippage,
             rehedge_interval_seconds,
             cancellation_token,
@@ -718,7 +690,6 @@ mod tests {
             let err = HyperliquidHedger::builder()
                 .private_key(test_signer())
                 .position(no_position())
-                .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -735,7 +706,6 @@ mod tests {
         rt.block_on(async {
             let err = HyperliquidHedger::builder()
                 .private_key(test_signer())
-                .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -758,7 +728,6 @@ mod tests {
         rt.block_on(async {
             let err = HyperliquidHedger::builder()
                 .client(test_client().await)
-                .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -774,28 +743,6 @@ mod tests {
 
     #[test]
     #[ignore = "requires local Uniswap RPC"]
-    fn builder_requires_max_leverage() {
-        let rt = runtime();
-        rt.block_on(async {
-            let err = HyperliquidHedger::builder()
-                .client(test_client().await)
-                .private_key(test_signer())
-                .position(no_position())
-                .rehedge_interval_seconds(30)
-                .cancellation_token(CancellationToken::new())
-                .build()
-                .await
-                .err()
-                .expect("leverage required");
-            assert_eq!(
-                err,
-                HedgerError::RequiredFieldMissing("MAX_LEVERAGE".to_string())
-            );
-        });
-    }
-
-    #[test]
-    #[ignore = "requires local Uniswap RPC"]
     fn builder_requires_rehedge_interval_seconds() {
         let rt = runtime();
         rt.block_on(async {
@@ -803,7 +750,6 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(no_position())
-                .max_leverage(2.0)
                 .cancellation_token(CancellationToken::new())
                 .build()
                 .await
@@ -818,29 +764,6 @@ mod tests {
 
     #[test]
     #[ignore = "requires local Uniswap RPC"]
-    fn builder_rejects_non_positive_leverage() {
-        let rt = runtime();
-        rt.block_on(async {
-            let client = test_client().await;
-            for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-                let err = HyperliquidHedger::builder()
-                    .client(client.clone())
-                    .private_key(test_signer())
-                    .position(no_position())
-                    .max_leverage(bad)
-                    .rehedge_interval_seconds(30)
-                    .cancellation_token(CancellationToken::new())
-                    .build()
-                    .await
-                    .err()
-                    .expect("invalid leverage");
-                assert!(matches!(err, HedgerError::InvalidConfig(_)));
-            }
-        });
-    }
-
-    #[test]
-    #[ignore = "requires local Uniswap RPC"]
     fn builder_rejects_invalid_slippage() {
         let rt = runtime();
         rt.block_on(async {
@@ -850,7 +773,6 @@ mod tests {
                     .client(client.clone())
                     .private_key(test_signer())
                     .position(no_position())
-                    .max_leverage(2.0)
                     .slippage(bad)
                     .rehedge_interval_seconds(30)
                     .cancellation_token(CancellationToken::new())
@@ -872,7 +794,6 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(no_position())
-                .max_leverage(2.0)
                 .rehedge_interval_seconds(0)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -892,13 +813,11 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(no_position())
-                .max_leverage(3.5)
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
                 .await
                 .expect("valid builder");
-            assert_eq!(hedger.max_leverage(), 3.5);
             assert_eq!(hedger.slippage(), DEFAULT_SLIPPAGE);
             assert_eq!(hedger.rehedge_interval_seconds(), 30);
         });
@@ -914,7 +833,6 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(pos_rx)
-                .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -939,7 +857,6 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(pos_rx)
-                .max_leverage(2.0)
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
