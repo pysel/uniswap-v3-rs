@@ -6,6 +6,7 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
+use uniswap_v3_math::full_math::mul_div;
 
 use crate::{
     errors::UniswapV3Error,
@@ -444,6 +445,32 @@ impl UniswapV3Client {
         usd_value(amounts.amount0, price0, decimals0)
             .zip(usd_value(amounts.amount1, price1, decimals1))
             .and_then(|(value0, value1)| value0.checked_add(value1))
+            .ok_or_else(|| UniswapV3Error::Math("position value overflowed".to_string()))
+    }
+
+    /// Estimates the value of an NPM position in raw token1 units, priced at the pool's own
+    /// current price: `amount1 + amount0 * sqrtPriceX96^2 / 2^192`.
+    /// Excludes accrued fees, like [`Self::compute_current_token_amounts`].
+    pub async fn estimate_position_value_from_pool_price(
+        &self,
+        pool_address: Address,
+        position_id: U256,
+    ) -> Result<U256, UniswapV3Error> {
+        let pool = Pool::from_address(pool_address, self).await?;
+        let amounts = self
+            .compute_current_token_amounts(&pool, position_id)
+            .await?;
+        let sqrt_price_x96 = U256::from(pool.sqrt_price_x96(&self.provider).await?);
+
+        let q96 = U256::from(1) << 96;
+        let value0 = mul_div(
+            mul_div(amounts.amount0, sqrt_price_x96, q96)?,
+            sqrt_price_x96,
+            q96,
+        )?;
+
+        value0
+            .checked_add(amounts.amount1)
             .ok_or_else(|| UniswapV3Error::Math("position value overflowed".to_string()))
     }
 

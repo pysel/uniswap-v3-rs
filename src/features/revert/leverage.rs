@@ -5,7 +5,10 @@ use alloy::{
     sol_types::SolCall,
 };
 use uniswap_sdk_core::prelude::Token;
-use uniswap_v3_math::{full_math::mul_div, tick_math::get_sqrt_ratio_at_tick};
+use uniswap_v3_math::{
+    full_math::{mul_div, mul_div_rounding_up},
+    tick_math::get_sqrt_ratio_at_tick,
+};
 
 use crate::{
     calltypes::{
@@ -29,6 +32,9 @@ use LeverageTransformerContract::{LeverageDownParams, LeverageUpParams};
 
 /// Liquidity used to sample the position's token ratio at the current price.
 const REFERENCE_LIQUIDITY: u128 = 1 << 96;
+/// Repay target as a percentage of the debt (101 = debt + 1%).
+const LEVERAGE_DOWN_LIQUIDITY_BUFFER_SCALER: u64 = 101;
+const ONE_USDC: U256 = U256::from_limbs([1_000_000, 0, 0, 0]);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LeverageUpResult {
@@ -181,10 +187,12 @@ impl UniswapV3Client {
         })
     }
 
-    /// Removes `liquidity_bps` of a deposited position's liquidity, swaps the non-asset token to
+    /// Removes the slice of a deposited position's liquidity worth its debt (plus a buffer),
+    /// capped at `liquidity_bps` of the current liquidity, swaps that slice's non-asset token to
     /// the vault asset and repays debt with it.
     ///
-    /// The vault caps repayment at the outstanding debt; any surplus goes to the signer.
+    /// The remaining liquidity stays in the position. The vault caps repayment at the
+    /// outstanding debt; any surplus goes to the signer.
     /// Uncollected fees stay in the position.
     pub async fn leverage_down(
         &self,
@@ -201,11 +209,8 @@ impl UniswapV3Client {
         }
 
         let ctx = self.leverage_context(position).await?;
-        if self
-            .revert_loan_debt_shares(position.position_id)
-            .await?
-            .is_zero()
-        {
+        let debt = self.revert_loan_info(position.position_id).await?.debt;
+        if debt.is_zero() {
             return Err(UniswapV3Error::Revert(format!(
                 "loan {} has no debt to repay",
                 position.position_id
@@ -217,7 +222,37 @@ impl UniswapV3Client {
             .await?
             .liquidity(self.provider())
             .await?;
-        let liquidity = scale_liquidity(current, liquidity_bps);
+
+        // Repay target with headroom for swap fees, slippage and accrued interest; the vault caps
+        // repayment at the actual debt and returns the excess.
+        let target = mul_div(
+            debt,
+            U256::from(LEVERAGE_DOWN_LIQUIDITY_BUFFER_SCALER),
+            U256::from(100),
+        )?;
+
+        // Position value in token1 units; convert to the vault asset when that is token0.
+        let mut position_value = self
+            .estimate_position_value_from_pool_price(position.pool, position.position_id)
+            .await?;
+        
+        if ctx.asset_is_token0 {
+            position_value = mul_div(
+                mul_div(position_value, q96(), ctx.sqrt_price_x96)?,
+                q96(),
+                ctx.sqrt_price_x96,
+            )?;
+        }
+
+        // Amounts are linear in liquidity at a fixed price, so the slice worth `target` is
+        // `current * target / value`. Rounded up so the slice never comes out short.
+        let debt_liquidity = if target >= position_value {
+            current
+        } else {
+            mul_div_rounding_up(U256::from(current), target, position_value)?.to::<u128>()
+        };
+
+        let liquidity = scale_liquidity(current, liquidity_bps).min(debt_liquidity);
         if liquidity == 0 {
             return Err(UniswapV3Error::Revert(format!(
                 "position {} has no liquidity to remove",
@@ -231,6 +266,7 @@ impl UniswapV3Client {
             position.upper_tick,
             liquidity,
         )?;
+        
         let remove_min0 = apply_negative_slippage(expected.amount0, slippage)?;
         let remove_min1 = apply_negative_slippage(expected.amount1, slippage)?;
 

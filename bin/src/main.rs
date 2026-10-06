@@ -18,8 +18,8 @@ use uniswap_v3_rs::{
 use tracing::{info, warn};
 
 const FEE: u32 = 3000;
-const WINDOW_BPS: BPS = BPS::new(1000);
-const REBALANCE_BPS: BPS = BPS::new(50);
+const WINDOW_BPS: BPS = BPS::new(1500);
+const REBALANCE_BPS: BPS = BPS::new(750);
 const REHEDGE_INTERVAL_SECONDS: u64 = 60;
 
 // Revert Lend on Base (USDC vault), https://docs.revert.finance

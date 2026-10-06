@@ -2,7 +2,7 @@ use alloy::{
     primitives::{Address, aliases::U24},
     providers::Provider,
 };
-use uniswap_sdk_core::prelude::{BaseCurrency, Error, QUOTER_V2_ADDRESSES};
+use uniswap_sdk_core::prelude::{BaseCurrency, QUOTER_V2_ADDRESSES};
 
 use crate::{
     calltypes::{
