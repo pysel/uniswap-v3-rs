@@ -79,11 +79,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     weth.approve_unlimited(&client, npm.address()).await?;
     println!("approved USDC + WETH for NPM");
 
-    let swap_router = client
-        .swap_router()
-        .expect("no SwapRouter for this chain");
-    usdc.approve_unlimited(&client, swap_router.address()).await?;
-    weth.approve_unlimited(&client, swap_router.address()).await?;
+    let swap_router = client.swap_router().expect("no SwapRouter for this chain");
+    usdc.approve_unlimited(&client, swap_router.address())
+        .await?;
+    weth.approve_unlimited(&client, swap_router.address())
+        .await?;
     println!("approved USDC + WETH for swap router");
 
     let cancellation_token = CancellationToken::new();

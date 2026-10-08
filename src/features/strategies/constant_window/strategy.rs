@@ -1,12 +1,12 @@
 #[cfg(feature = "revert")]
 use std::ops::Mul;
 
+#[cfg(feature = "revert")]
+use alloy::primitives::utils::parse_units;
 use alloy::primitives::{
     Address,
     aliases::{U24, U160},
 };
-#[cfg(feature = "revert")]
-use alloy::primitives::utils::parse_units;
 use alloy_primitives::U256;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -16,7 +16,11 @@ use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 #[cfg(feature = "revert")]
 use crate::client::USD_DECIMALS;
 use crate::{
-    calltypes::{BPS, ClosePositionParams, CreatePositionParams}, client::UniswapV3Client, errors::UniswapV3Error, objects::{ExactInputSingleParams, Pool, Position as NpmPosition, TokenExt}, strategies::{
+    calltypes::{BPS, ClosePositionParams, CreatePositionParams},
+    client::UniswapV3Client,
+    errors::UniswapV3Error,
+    objects::{ExactInputSingleParams, Pool, Position as NpmPosition, TokenExt},
+    strategies::{
         Position, Strategy, StrategyHandle,
         errors::StrategyError,
         price_source::PriceSource,
@@ -665,7 +669,8 @@ where
                 }
             } else {
                 if self.rebalance_proportion_threshold.is_some() {
-                    self.rebalance_amounts(&client, pool_address, &pool.token0(), &pool.token1()).await?;
+                    self.rebalance_amounts(&client, pool_address, &pool.token0(), &pool.token1())
+                        .await?;
                 }
 
                 call_with_max_retries!(
@@ -741,24 +746,31 @@ where
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
         let Some(proportion_threshold) = self.rebalance_proportion_threshold else {
-            return Err(StrategyError::InvalidConfig("rebalance_amounts must be called with rebalance_proportion_threshold set".to_string()));
+            return Err(StrategyError::InvalidConfig(
+                "rebalance_amounts must be called with rebalance_proportion_threshold set"
+                    .to_string(),
+            ));
         };
 
         let token0balance = token0.balance_of(client, signer).await?;
-        let token0value = client.estimate_token_value_from_pool_price(token0, &pool, token0balance).await?;
+        let token0value = client
+            .estimate_token_value_from_pool_price(token0, &pool, token0balance)
+            .await?;
 
         let token1balance = token1.balance_of(client, signer).await?;
-        let token1value = client.estimate_token_value_from_pool_price(token1, &pool, token1balance).await?;
+        let token1value = client
+            .estimate_token_value_from_pool_price(token1, &pool, token1balance)
+            .await?;
 
-        let token0value =  f64::from(token0value) / 10f64.powi(6);
-        let token1value =  f64::from(token1value) / 10f64.powi(6);
-
+        let token0value = f64::from(token0value) / 10f64.powi(6);
+        let token1value = f64::from(token1value) / 10f64.powi(6);
 
         if token1value > token0value * proportion_threshold {
             let excess = token1value - token0value;
             let swap_value = excess / 2.0;
             let swap_fraction = swap_value / token1value;
-            let swap_amount =  Self::amount_from_portfolio_fraction(token1, token1balance, swap_fraction)?;
+            let swap_amount =
+                Self::amount_from_portfolio_fraction(token1, token1balance, swap_fraction)?;
 
             let swap_params = ExactInputSingleParams {
                 tokenIn: token1.address(),
