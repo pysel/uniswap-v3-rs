@@ -10,7 +10,7 @@ use uniswap_v3_math::full_math::mul_div;
 
 use crate::{
     errors::UniswapV3Error,
-    objects::{Factory, Pool, SwapRouter},
+    objects::{Factory, Pool, SwapRouter, TokenExt},
 };
 
 use crate::{
@@ -448,8 +448,8 @@ impl UniswapV3Client {
             .ok_or_else(|| UniswapV3Error::Math("position value overflowed".to_string()))
     }
 
-    /// Estimates the value of an NPM position in raw token1 units, priced at the pool's own
-    /// current price: `amount1 + amount0 * sqrtPriceX96^2 / 2^192`.
+    /// Estimates the value of an NPM position in raw stablecoin (quote) units, priced at the
+    /// pool's own current price. See [`Self::estimate_token_value_from_pool_price`].
     /// Excludes accrued fees, like [`Self::compute_current_token_amounts`].
     pub async fn estimate_position_value_from_pool_price(
         &self,
@@ -460,18 +460,63 @@ impl UniswapV3Client {
         let amounts = self
             .compute_current_token_amounts(&pool, position_id)
             .await?;
-        let sqrt_price_x96 = U256::from(pool.sqrt_price_x96(&self.provider).await?);
-
-        let q96 = U256::from(1) << 96;
-        let value0 = mul_div(
-            mul_div(amounts.amount0, sqrt_price_x96, q96)?,
-            sqrt_price_x96,
-            q96,
-        )?;
+        let value0 = self
+            .estimate_token_value_from_pool_price(pool.token0(), &pool, amounts.amount0)
+            .await?;
+        let value1 = self
+            .estimate_token_value_from_pool_price(pool.token1(), &pool, amounts.amount1)
+            .await?;
 
         value0
-            .checked_add(amounts.amount1)
+            .checked_add(value1)
             .ok_or_else(|| UniswapV3Error::Math("position value overflowed".to_string()))
+    }
+
+    /// Estimates the value of a raw `amount` of `token` in raw units of the pool's stablecoin
+    /// (quote) token, priced at the pool's own current price. A stablecoin `amount` is returned
+    /// as is; otherwise it is converted at `P = sqrtPriceX96^2 / 2^192` (token1 per token0).
+    pub async fn estimate_token_value_from_pool_price(
+        &self,
+        token: &Token,
+        pool: &Pool,
+        amount: U256,
+    ) -> Result<U256, UniswapV3Error> {
+        let (token0, token1) = (pool.token0(), pool.token1());
+        let token_is_token0 = if token.address() == token0.address() {
+            true
+        } else if token.address() == token1.address() {
+            false
+        } else {
+            return Err(UniswapV3Error::InvalidPool(format!(
+                "token {} is not in pool {}",
+                token.address(),
+                pool.address()
+            )));
+        };
+
+        if token.is_stablecoin() {
+            return Ok(amount);
+        }
+
+        let quote = if token_is_token0 { token1 } else { token0 };
+        if !quote.is_stablecoin() {
+            return Err(UniswapV3Error::InvalidPool(format!(
+                "pool {} has no stablecoin quote token",
+                pool.address()
+            )));
+        }
+
+        let sqrt_price_x96 = U256::from(pool.sqrt_price_x96(&self.provider).await?);
+        let q96 = U256::from(1) << 96;
+        let value = if token_is_token0 {
+            // token0 -> token1: amount * P.
+            mul_div(mul_div(amount, sqrt_price_x96, q96)?, sqrt_price_x96, q96)?
+        } else {
+            // token1 -> token0: amount / P.
+            mul_div(mul_div(amount, q96, sqrt_price_x96)?, q96, sqrt_price_x96)?
+        };
+
+        Ok(value)
     }
 
     fn require_swap_router(&self) -> Result<&SwapRouter, UniswapV3Error> {

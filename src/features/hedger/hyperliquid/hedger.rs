@@ -39,6 +39,8 @@ pub struct HyperliquidHedger {
     exchange_client: ExchangeClient,
     info_client: InfoClient,
     position: watch::Receiver<Option<Position>>,
+    token0: Token,
+    token1: Token,
     status: watch::Sender<HedgeStatus>,
     slippage: f64,
     rehedge_interval_seconds: u64,
@@ -52,6 +54,8 @@ impl HyperliquidHedger {
             client: None,
             private_key: None,
             position: None,
+            token0: None,
+            token1: None,
             base_url: BaseUrl::Mainnet,
             slippage: None,
             rehedge_interval_seconds: None,
@@ -341,7 +345,22 @@ impl HyperliquidHedger {
         return new_status;
     }
 
-    async fn hedge_position(&self, position: &Position) -> HedgeStatus {
+    /// Caller wallet balance of `token`.
+    async fn wallet_balance(&self, token: &Token) -> Result<U256, HedgerError> {
+        let owner = self.client.signer_address().ok_or_else(|| {
+            HedgerError::Uniswap("signer required to read wallet balances".to_string())
+        })?;
+
+        token
+            .balance_of(&self.client, owner)
+            .await
+            .map_err(|error| HedgerError::Uniswap(error.to_string()))
+    }
+
+    async fn position_exp(
+        &self,
+        position: &Position,
+    ) -> Result<(Token, Token, U256, U256), HedgerError> {
         let (token0, token1, amount0, amount1) = match self
             .client
             .position_exposure(position.pool, position.position_id)
@@ -349,22 +368,33 @@ impl HyperliquidHedger {
         {
             Ok(exposure) => exposure,
             Err(error) => {
-                return self
-                    .current_hedge_status_with_error(HedgerError::Uniswap(error.to_string()));
+                return Err(HedgerError::Uniswap(error.to_string()));
             }
         };
 
-        let token0_hedge = match self.hedge(&token0, amount0).await {
-            Ok(hedge) => hedge,
-            Err(error) => return self.current_hedge_status_with_error(error),
-        };
+        Ok((token0, token1, amount0, amount1))
+    }
 
-        let token1_hedge = match self.hedge(&token1, amount1).await {
-            Ok(hedge) => hedge,
-            Err(error) => return self.current_hedge_status_with_error(error),
-        };
+    /// Hedges the caller's wallet balances plus, when present, the position's principal.
+    async fn hedge_portfolio(
+        &self,
+        token0: &Token,
+        token1: &Token,
+        position: Option<Position>,
+    ) -> Result<HedgeStatus, HedgerError> {
+        let mut amount0 = self.wallet_balance(token0).await?;
+        let mut amount1 = self.wallet_balance(token1).await?;
 
-        HedgeStatus::hedged(token0_hedge, token1_hedge)
+        if let Some(position) = position {
+            let (_, _, position_amount0, position_amount1) = self.position_exp(&position).await?;
+            amount0 = amount0.saturating_add(position_amount0);
+            amount1 = amount1.saturating_add(position_amount1);
+        }
+
+        let token0_hedge = self.hedge(token0, amount0).await?;
+        let token1_hedge = self.hedge(token1, amount1).await?;
+
+        Ok(HedgeStatus::hedged(token0_hedge, token1_hedge))
     }
 
     async fn run_loop(mut self) {
@@ -377,19 +407,18 @@ impl HyperliquidHedger {
         loop {
             // A closed position watch is terminal absence, even if the last value remains Some.
             let current = *self.position.borrow();
+            let mut next = self
+                .hedge_portfolio(&self.token0, &self.token1, current)
+                .await
+                .unwrap_or_else(|error| self.current_hedge_status_with_error(error));
+
             let current_status = self.status.borrow().clone();
-            let next = match current {
-                None => match self.cleanup(&current_status).await {
+            if current_status.has_error() && next.has_error() {
+                // two errors in a row
+                next = match self.cleanup(&current_status).await {
                     Ok(()) => HedgeStatus::idle(),
                     Err(error) => self.current_hedge_status_with_error(error),
-                },
-                Some(_) if current_status.has_error() => {
-                    match self.cleanup(&current_status).await {
-                        Ok(()) => HedgeStatus::idle(),
-                        Err(error) => self.current_hedge_status_with_error(error),
-                    }
                 }
-                Some(position) => self.hedge_position(&position).await,
             };
 
             if self.status.send(next.clone()).is_err() {
@@ -449,6 +478,8 @@ pub struct HyperliquidHedgerBuilder {
     client: Option<UniswapV3Client>,
     private_key: Option<PrivateKeySigner>,
     position: Option<watch::Receiver<Option<Position>>>,
+    token0: Option<Token>,
+    token1: Option<Token>,
     base_url: BaseUrl,
     slippage: Option<f64>,
     rehedge_interval_seconds: Option<u64>,
@@ -471,6 +502,18 @@ impl HyperliquidHedgerBuilder {
     #[must_use]
     pub fn position(mut self, position: watch::Receiver<Option<Position>>) -> Self {
         self.position = Some(position);
+        self
+    }
+
+    #[must_use]
+    pub fn token0(mut self, token0: Token) -> Self {
+        self.token0 = Some(token0);
+        self
+    }
+
+    #[must_use]
+    pub fn token1(mut self, token1: Token) -> Self {
+        self.token1 = Some(token1);
         self
     }
 
@@ -513,6 +556,12 @@ impl HyperliquidHedgerBuilder {
         let position = self
             .position
             .ok_or_else(|| HedgerError::RequiredFieldMissing("POSITION".to_string()))?;
+        let token0 = self
+            .token0
+            .ok_or_else(|| HedgerError::RequiredFieldMissing("TOKEN0".to_string()))?;
+        let token1 = self
+            .token1
+            .ok_or_else(|| HedgerError::RequiredFieldMissing("TOKEN1".to_string()))?;
         let rehedge_interval_seconds = self.rehedge_interval_seconds.ok_or_else(|| {
             HedgerError::RequiredFieldMissing("REHEDGE_INTERVAL_SECONDS".to_string())
         })?;
@@ -555,6 +604,8 @@ impl HyperliquidHedgerBuilder {
             exchange_client,
             info_client,
             position,
+            token0,
+            token1,
             status,
             slippage,
             rehedge_interval_seconds,
@@ -773,6 +824,8 @@ mod tests {
                     .client(client.clone())
                     .private_key(test_signer())
                     .position(no_position())
+                    .token0(token("WETH", 18))
+                    .token1(token("USDC", 6))
                     .slippage(bad)
                     .rehedge_interval_seconds(30)
                     .cancellation_token(CancellationToken::new())
@@ -794,6 +847,8 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(no_position())
+                .token0(token("WETH", 18))
+                .token1(token("USDC", 6))
                 .rehedge_interval_seconds(0)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -813,6 +868,8 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(no_position())
+                .token0(token("WETH", 18))
+                .token1(token("USDC", 6))
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -833,6 +890,8 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(pos_rx)
+                .token0(token("WETH", 18))
+                .token1(token("USDC", 6))
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()
@@ -857,6 +916,8 @@ mod tests {
                 .client(test_client().await)
                 .private_key(test_signer())
                 .position(pos_rx)
+                .token0(token("WETH", 18))
+                .token1(token("USDC", 6))
                 .rehedge_interval_seconds(30)
                 .cancellation_token(CancellationToken::new())
                 .build()

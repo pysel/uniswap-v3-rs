@@ -30,6 +30,12 @@ sol!(
     "artifacts/NonfungiblePositionManager.json"
 );
 
+sol!(
+    #[sol(rpc)]
+    IERC20,
+    "artifacts/erc20/IERC20.json"
+);
+
 sol! {
     #[sol(rpc)]
     interface Erc20 {

@@ -17,7 +17,9 @@ use crate::{
     },
     client::UniswapV3Client,
     errors::UniswapV3Error,
-    objects::{Pool, TokenAmounts, send_with_gas_multiplier_map_err, token_amounts_for_liquidity},
+    objects::{
+        Pool, TokenAmounts, TokenExt, send_with_gas_multiplier_map_err, token_amounts_for_liquidity,
+    },
     strategies::Position,
 };
 
@@ -34,6 +36,9 @@ use LeverageTransformerContract::{LeverageDownParams, LeverageUpParams};
 const REFERENCE_LIQUIDITY: u128 = 1 << 96;
 /// Repay target as a percentage of the debt (101 = debt + 1%).
 const LEVERAGE_DOWN_LIQUIDITY_BUFFER_SCALER: u64 = 101;
+/// Fee tier of the pool leverage swaps route through. The position's own pool can be a pricier
+/// tier (e.g. 0.3%), so swaps go through the 0.05% pool instead.
+const SWAP_POOL_FEE: u32 = 500;
 const ONE_USDC: U256 = U256::from_limbs([1_000_000, 0, 0, 0]);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,7 +110,7 @@ impl UniswapV3Client {
     /// as liquidity.
     ///
     /// The borrowed asset is split to match the position's current token ratio; the non-asset
-    /// share is swapped through the position's own pool via the Universal Router. `slippage`
+    /// share is swapped through the [`SWAP_POOL_FEE`] pool via the Universal Router. `slippage`
     /// bounds both the swap output and the added amounts. Leftovers go to the signer.
     pub async fn leverage_up(
         &self,
@@ -127,6 +132,7 @@ impl UniswapV3Client {
             position.upper_tick,
             REFERENCE_LIQUIDITY,
         )?;
+
         let swap_in = swap_amount(
             borrow_amount,
             per_liquidity,
@@ -137,7 +143,10 @@ impl UniswapV3Client {
         let swap = if swap_in.is_zero() {
             SwapLeg::default()
         } else {
-            self.swap_leg(&ctx, asset, other, swap_in, slippage).await?
+            let mut path = Path::new(asset.clone());
+            path.add_hop(other.clone(), SWAP_POOL_FEE)?;
+
+            self.swap_leg(&ctx, path, swap_in, slippage).await?
         };
 
         let kept = borrow_amount - swap_in;
@@ -153,6 +162,7 @@ impl UniswapV3Client {
             add0,
             add1,
         )?;
+
         let expected = token_amounts_for_liquidity(
             ctx.sqrt_price_x96,
             position.lower_tick,
@@ -231,18 +241,23 @@ impl UniswapV3Client {
             U256::from(100),
         )?;
 
-        // Position value in token1 units; convert to the vault asset when that is token0.
-        let mut position_value = self
+        // Position value is in stablecoin units, so it is only in vault-asset units when the
+        // asset is the pool's stablecoin.
+        let asset = if ctx.asset_is_token0 {
+            ctx.pool.token0()
+        } else {
+            ctx.pool.token1()
+        };
+        if !asset.is_stablecoin() {
+            return Err(UniswapV3Error::Revert(format!(
+                "vault asset {} is not a stablecoin",
+                asset.address
+            )));
+        }
+
+        let position_value = self
             .estimate_position_value_from_pool_price(position.pool, position.position_id)
             .await?;
-        
-        if ctx.asset_is_token0 {
-            position_value = mul_div(
-                mul_div(position_value, q96(), ctx.sqrt_price_x96)?,
-                q96(),
-                ctx.sqrt_price_x96,
-            )?;
-        }
 
         // Amounts are linear in liquidity at a fixed price, so the slice worth `target` is
         // `current * target / value`. Rounded up so the slice never comes out short.
@@ -266,7 +281,7 @@ impl UniswapV3Client {
             position.upper_tick,
             liquidity,
         )?;
-        
+
         let remove_min0 = apply_negative_slippage(expected.amount0, slippage)?;
         let remove_min1 = apply_negative_slippage(expected.amount1, slippage)?;
 
@@ -280,8 +295,10 @@ impl UniswapV3Client {
         let swap = if other_in.is_zero() {
             SwapLeg::default()
         } else {
-            self.swap_leg(&ctx, other, asset, other_in, slippage)
-                .await?
+            let mut path = Path::new(other.clone());
+            path.add_hop(asset.clone(), SWAP_POOL_FEE)?;
+
+            self.swap_leg(&ctx, path, other_in, slippage).await?
         };
 
         let (leg0, leg1) = ctx.legs(swap);
@@ -374,19 +391,14 @@ impl UniswapV3Client {
         })
     }
 
-    /// Quotes `amount_in` of `token_in` → `token_out` through the position's pool and encodes it
-    /// as transformer `swapData`.
+    /// Quotes `amount_in` along single-hop `path` and encodes it as transformer `swapData`.
     async fn swap_leg(
         &self,
         ctx: &LeverageContext,
-        token_in: &Token,
-        token_out: &Token,
+        path: Path,
         amount_in: U256,
         slippage: BPS,
     ) -> Result<SwapLeg, UniswapV3Error> {
-        let mut path = Path::new(token_in.clone());
-        path.add_hop(token_out.clone(), ctx.pool.fee())?;
-
         let quote = self
             .quote_exact_input_single(
                 QuoteExactInputSingleParams::builder(&path)
@@ -395,6 +407,7 @@ impl UniswapV3Client {
                     .build()?,
             )
             .await?;
+
         let amount_out_min = apply_negative_slippage(quote.amount_out, slippage)?;
         let data = universal_router_swap_data(
             ctx.universal_router,

@@ -79,6 +79,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     weth.approve_unlimited(&client, npm.address()).await?;
     println!("approved USDC + WETH for NPM");
 
+    let swap_router = client
+        .swap_router()
+        .expect("no SwapRouter for this chain");
+    usdc.approve_unlimited(&client, swap_router.address()).await?;
+    weth.approve_unlimited(&client, swap_router.address()).await?;
+    println!("approved USDC + WETH for swap router");
+
     let cancellation_token = CancellationToken::new();
 
     let strategy = ConstantWindowStrategy::builder()
@@ -91,6 +98,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .price_source_token0(BinancePriceSource::new())
         .price_source_token1(StablePriceSource::new())
         .leveraged()
+        .rebalance_proportion_threshold(1.2)
         .cancellation_token(cancellation_token.clone())
         .build()?;
 
@@ -105,7 +113,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .client(client.clone())
         .private_key(hedge_signer)
         .position(position_rx.clone())
-        .base_url(BaseUrl::Testnet)
+        .token0(pool.token0().clone())
+        .token1(pool.token1().clone())
+        .base_url(BaseUrl::Mainnet)
         .rehedge_interval_seconds(REHEDGE_INTERVAL_SECONDS)
         .cancellation_token(cancellation_token.clone())
         .build()

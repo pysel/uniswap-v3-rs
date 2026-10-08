@@ -1,7 +1,10 @@
 #[cfg(feature = "revert")]
 use std::ops::Mul;
 
-use alloy::primitives::Address;
+use alloy::primitives::{
+    Address,
+    aliases::{U24, U160},
+};
 #[cfg(feature = "revert")]
 use alloy::primitives::utils::parse_units;
 use alloy_primitives::U256;
@@ -13,11 +16,7 @@ use uniswap_sdk_core::{entities::Token, prelude::BaseCurrency};
 #[cfg(feature = "revert")]
 use crate::client::USD_DECIMALS;
 use crate::{
-    calltypes::{BPS, ClosePositionParams, CreatePositionParams},
-    client::UniswapV3Client,
-    errors::UniswapV3Error,
-    objects::{Pool, Position as NpmPosition, TokenExt},
-    strategies::{
+    calltypes::{BPS, ClosePositionParams, CreatePositionParams}, client::UniswapV3Client, errors::UniswapV3Error, objects::{ExactInputSingleParams, Pool, Position as NpmPosition, TokenExt}, strategies::{
         Position, Strategy, StrategyHandle,
         errors::StrategyError,
         price_source::PriceSource,
@@ -27,6 +26,9 @@ use crate::{
 
 #[cfg(feature = "revert")]
 const DEFAULT_LEVERAGE: u32 = 2;
+
+/// Fee tier of the pool rebalancing swaps route through.
+const REBALANCE_POOL_FEE: u32 = 500;
 
 /// Retries an async expression up to `max_retries` times after the first failure.
 ///
@@ -89,6 +91,9 @@ pub struct ConstantWindowStrategy<T0, T1> {
     // With leverage
     leveraged: bool,
 
+    // Optional token-proportion threshold for rebalancing; `None` disables it.
+    rebalance_proportion_threshold: Option<f64>,
+
     // Cancellation token for the strategy.
     cancellation_token: CancellationToken,
 }
@@ -110,6 +115,7 @@ where
         price_source_token0: T0,
         price_source_token1: T1,
         leveraged: bool,
+        rebalance_proportion_threshold: Option<f64>,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
@@ -123,6 +129,7 @@ where
             price_source_token1,
             position: None,
             leveraged,
+            rebalance_proportion_threshold,
             cancellation_token,
         }
     }
@@ -199,29 +206,36 @@ where
             .signer_address()
             .ok_or(StrategyError::SignerRequired)?;
 
-        #[cfg(feature = "revert")]
-        if self.leveraged {
-            self.exit_revert_positions(client, pool).await?;
-        }
-
         let _ = client
             .position_manager()
             .ok_or(StrategyError::PositionManagerRequired)?;
 
-        let positions = client.get_positions(owner).await?;
-        for position in positions
-            .into_iter()
-            .filter(|position| Self::matches_pool(position, pool))
-        {
-            let params = ClosePositionParams::builder()
-                .recipient(owner)
-                .then_default()
-                .build()?;
-            let response = client.close_position(&position, params).await?;
-            let _ = response.amounts.await?;
+        let mut positions: Vec<Position> = client
+            .get_positions(owner)
+            .await?
+            .iter()
+            .map(|p| {
+                Position::from_sdk(
+                    p,
+                    pool,
+                    self.open_price_from_ticks(pool, p.tick_lower(), p.tick_upper()),
+                )
+            })
+            .collect();
+
+        #[cfg(feature = "revert")]
+        if self.leveraged {
+            let revert_positions = self.get_revert_positions(client, pool).await?;
+            positions.extend(revert_positions);
         }
 
-        self.position = None;
+        // if everythign is as expected -- single position, just work off of it
+        if positions.len() == 1 {
+            self.position = Some(positions[0]);
+        } else {
+            self.position = None;
+        }
+
         Ok(())
     }
 
@@ -263,6 +277,56 @@ where
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "revert")]
+    /// Returns every owner loan in the Revert vault that matches the exact pool key.
+    ///
+    /// `open_price` is recovered from the range edges and this strategy's window lengths, so a
+    /// reattached position keeps rebalance bounds close to the ones it was opened with.
+    pub async fn get_revert_positions(
+        &self,
+        client: &UniswapV3Client,
+        pool: &Pool,
+    ) -> Result<Vec<Position>, StrategyError> {
+        let owner = client
+            .signer_address()
+            .ok_or(StrategyError::SignerRequired)?;
+
+        let mut positions = Vec::new();
+        for revert_position_id in client.revert_loans(owner).await? {
+            let npm_position = client.get_position(revert_position_id).await?;
+            if !Self::matches_pool(&npm_position, pool) {
+                continue;
+            }
+
+            let open_price = self.open_price_from_ticks(
+                pool,
+                npm_position.tick_lower(),
+                npm_position.tick_upper(),
+            );
+
+            positions.push(Position::from_sdk(&npm_position, pool, open_price));
+        }
+
+        Ok(positions)
+    }
+
+    #[cfg(feature = "revert")]
+    /// Inverts [`Self::ticks_from_external_mid`]: averages the mids implied by each range edge
+    /// (`lower = mid * (1 - below)`, `upper = mid * (1 + above)`) to absorb tick-spacing rounding.
+    fn open_price_from_ticks(&self, pool: &Pool, lower_tick: i32, upper_tick: i32) -> f64 {
+        let decimals_scale =
+            10f64.powi(i32::from(pool.token0().decimals) - i32::from(pool.token1().decimals));
+        let human_price = |tick: i32| 1.0001f64.powi(tick) * decimals_scale;
+        let denominator = f64::from(BPS::denominator());
+
+        let mid_from_lower =
+            human_price(lower_tick) / (1.0 - f64::from(self.length_below_mid.get()) / denominator);
+        let mid_from_upper =
+            human_price(upper_tick) / (1.0 + f64::from(self.length_above_mid.get()) / denominator);
+
+        (mid_from_lower + mid_from_upper) / 2.0
     }
 
     /// Validates configuration, live prices, balances, and NPM allowances.
@@ -600,6 +664,10 @@ where
                         .map_err(|_| StrategyError::PositionWatchClosed)?;
                 }
             } else {
+                if self.rebalance_proportion_threshold.is_some() {
+                    self.rebalance_amounts(&client, pool_address, &pool.token0(), &pool.token1()).await?;
+                }
+
                 call_with_max_retries!(
                     3,
                     self.set_position(&client, &pool, &price0, &price1).await
@@ -661,6 +729,75 @@ where
         }
     }
 
+    async fn rebalance_amounts(
+        &self,
+        client: &UniswapV3Client,
+        pool_address: Address,
+        token0: &Token,
+        token1: &Token,
+    ) -> Result<(), StrategyError> {
+        let pool = Pool::from_address(pool_address, client).await?;
+        let signer = client
+            .signer_address()
+            .ok_or(StrategyError::SignerRequired)?;
+        let Some(proportion_threshold) = self.rebalance_proportion_threshold else {
+            return Err(StrategyError::InvalidConfig("rebalance_amounts must be called with rebalance_proportion_threshold set".to_string()));
+        };
+
+        let token0balance = token0.balance_of(client, signer).await?;
+        let token0value = client.estimate_token_value_from_pool_price(token0, &pool, token0balance).await?;
+
+        let token1balance = token1.balance_of(client, signer).await?;
+        let token1value = client.estimate_token_value_from_pool_price(token1, &pool, token1balance).await?;
+
+        let token0value =  f64::from(token0value) / 10f64.powi(6);
+        let token1value =  f64::from(token1value) / 10f64.powi(6);
+
+
+        if token1value > token0value * proportion_threshold {
+            let excess = token1value - token0value;
+            let swap_value = excess / 2.0;
+            let swap_fraction = swap_value / token1value;
+            let swap_amount =  Self::amount_from_portfolio_fraction(token1, token1balance, swap_fraction)?;
+
+            let swap_params = ExactInputSingleParams {
+                tokenIn: token1.address(),
+                tokenOut: token0.address(),
+                fee: U24::from(REBALANCE_POOL_FEE),
+                recipient: signer,
+                amountIn: swap_amount,
+                amountOutMinimum: U256::ZERO,
+                sqrtPriceLimitX96: U160::ZERO,
+            };
+
+            let response = client.swap_exact_input_single(swap_params, None).await?;
+            let _ = response.amount_out.await?;
+        }
+
+        if token0value > token1value * proportion_threshold {
+            let excess = token0value - token1value;
+            let swap_value = excess / 2.0;
+            let swap_fraction = swap_value / token0value;
+            let swap_amount =
+                Self::amount_from_portfolio_fraction(token0, token0balance, swap_fraction)?;
+
+            let swap_params = ExactInputSingleParams {
+                tokenIn: token0.address(),
+                tokenOut: token1.address(),
+                fee: U24::from(REBALANCE_POOL_FEE),
+                recipient: signer,
+                amountIn: swap_amount,
+                amountOutMinimum: U256::ZERO,
+                sqrtPriceLimitX96: U160::ZERO,
+            };
+
+            let response = client.swap_exact_input_single(swap_params, None).await?;
+            let _ = response.amount_out.await?;
+        }
+
+        Ok(())
+    }
+
     async fn get_token_balances(
         &self,
         client: &UniswapV3Client,
@@ -707,6 +844,7 @@ pub struct ConstantWindowStrategyBuilder<T0 = (), T1 = ()> {
     price_source_token0: Option<T0>,
     price_source_token1: Option<T1>,
     leveraged: bool,
+    rebalance_proportion_threshold: Option<f64>,
     cancellation_token: Option<CancellationToken>,
 }
 
@@ -724,6 +862,7 @@ impl ConstantWindowStrategy<(), ()> {
             price_source_token1: None,
             cancellation_token: None,
             leveraged: false,
+            rebalance_proportion_threshold: None,
         }
     }
 }
@@ -792,6 +931,7 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             price_source_token1: self.price_source_token1,
             cancellation_token: self.cancellation_token,
             leveraged: self.leveraged,
+            rebalance_proportion_threshold: self.rebalance_proportion_threshold,
         }
     }
 
@@ -814,6 +954,7 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
             price_source_token1: Some(price_source_token1),
             cancellation_token: self.cancellation_token,
             leveraged: self.leveraged,
+            rebalance_proportion_threshold: self.rebalance_proportion_threshold,
         }
     }
 
@@ -825,6 +966,12 @@ impl<T0, T1> ConstantWindowStrategyBuilder<T0, T1> {
 
     pub fn leveraged(mut self) -> Self {
         self.leveraged = true;
+        self
+    }
+
+    #[must_use]
+    pub fn rebalance_proportion_threshold(mut self, rebalance_proportion_threshold: f64) -> Self {
+        self.rebalance_proportion_threshold = Some(rebalance_proportion_threshold);
         self
     }
 }
@@ -883,6 +1030,7 @@ where
             price_source_token0,
             price_source_token1,
             leveraged,
+            self.rebalance_proportion_threshold,
             cancellation_token,
         ))
     }
@@ -957,6 +1105,7 @@ mod tests {
             DummyPriceSource,
             DummyPriceSource,
             false,
+            None,
             CancellationToken::new(),
         )
     }

@@ -2,6 +2,8 @@ use std::fmt::{Display, Formatter};
 
 use alloy_primitives::{Address, U256};
 
+use crate::objects::{Pool, Position as NpmPosition};
+
 /// In-memory bookkeeping for the strategy-managed NPM position.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Position {
@@ -46,5 +48,20 @@ impl Position {
             lower_tick,
             upper_tick,
         }
+    }
+
+    /// Builds strategy bookkeeping for an on-chain NPM position in `pool`.
+    ///
+    /// The NPM position carries neither the open price nor the pool address / chain, so the
+    /// caller supplies `open_price` and the `pool` the position belongs to.
+    pub(crate) fn from_sdk(sdk_position: &NpmPosition, pool: &Pool, open_price: f64) -> Self {
+        Self::new(
+            open_price,
+            sdk_position.token_id(),
+            pool.address(),
+            pool.chain_id(),
+            sdk_position.tick_lower(),
+            sdk_position.tick_upper(),
+        )
     }
 }
